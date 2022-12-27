@@ -2,7 +2,7 @@
   "name": "vscode-coeditor",
   "displayName": "VSCode Coeditor",
   "description": "A VSCode plugin for suggesting Python Code edits using the Coeditor model.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.74.0"
   },
@@ -10,16 +10,26 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:vscode-coeditor.helloWorld"
+    "onCommand:vscode-coeditor.suggestEdit"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "vscode-coeditor.helloWorld",
-        "title": "Hello World"
+        "command": "vscode-coeditor.suggestEdit",
+        "title": "Edit from this line",
+        "category": "Coeditor"
       }
-    ]
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "vscode-coeditor.suggestEdit",
+          "when": "editorLangId == python",
+          "group": "1_modification"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -30,16 +40,21 @@
     "test": "node ./out/test/runTest.js"
   },
   "devDependencies": {
-    "@types/vscode": "^1.74.0",
     "@types/glob": "^8.0.0",
     "@types/mocha": "^10.0.1",
     "@types/node": "16.x",
+    "@types/vscode": "^1.74.0",
     "@typescript-eslint/eslint-plugin": "^5.45.0",
     "@typescript-eslint/parser": "^5.45.0",
+    "@vscode/test-electron": "^2.2.0",
     "eslint": "^8.28.0",
     "glob": "^8.0.3",
     "mocha": "^10.1.0",
-    "typescript": "^4.9.3",
-    "@vscode/test-electron": "^2.2.0"
+    "typescript": "^4.9.3"
+  },
+  "dependencies": {
+    "axios": "^1.2.1",
+    "got": "^12.5.3",
+    "json-rpc-2.0": "^1.4.2"
   }
 }
