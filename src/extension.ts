@@ -46,7 +46,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				if(changed === true) {
 					vscode.window.showInformationMessage(`Suggested edit applied.`);
 				} else {
-					vscode.window.showInformationMessage(`Model suggested no change.`);
+					vscode.window.showInformationMessage(`Model suggestion is same as current state.`);
 				}
 			}).catch((error: any) => {
 				console.log(error);
