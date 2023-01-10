@@ -2,7 +2,7 @@
   "name": "vscode-coeditor",
   "displayName": "VSCode Coeditor",
   "description": "A VSCode plugin for suggesting Python Code edits using the Coeditor model.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "repository": {
     "type": "git",
     "url": "https://github.com/MrVPlusOne/vscode-coeditor"
@@ -14,7 +14,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:vscode-coeditor.suggestEdit"
+    "onCommand:vscode-coeditor.suggestEdit",
+    "onCommand:vscode-coeditor.show-diff"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -22,6 +23,11 @@
       {
         "command": "vscode-coeditor.suggestEdit",
         "title": "Suggest edit from this line",
+        "category": "Coeditor"
+      },
+      {
+        "command": "vscode-coeditor.show-diff",
+        "title": "Test the diff UI",
         "category": "Coeditor"
       }
     ],
