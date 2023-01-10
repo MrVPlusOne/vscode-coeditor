@@ -33,6 +33,8 @@ class CoeditorClient {
 	lastResponse: ServerResponse | undefined = undefined;
 	suggestionSnippets: string[] = [];
 	virtualFiles: { [name: string] : string; } = {};
+	fileChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
+
 
 	constructor(context: vscode.ExtensionContext, axios: any, serverPort: number) {
 		this.serverPort = serverPort;
@@ -64,7 +66,9 @@ class CoeditorClient {
 		this.codeLensProvider = codeLensProvider;
 
 		const vFiles = this.virtualFiles;
+
 		const contentProvider = new (class implements vscode.TextDocumentContentProvider {
+  			onDidChange = client.fileChangeEmitter.event;
 			provideTextDocumentContent(uri: vscode.Uri): string {
 				return vFiles[uri.path];
 			}
@@ -104,28 +108,9 @@ class CoeditorClient {
 		
 		vscode.window.showInformationMessage(`Suggesting edit at line ${lineNumber} in ${relPath}`);
 
-		/* eslint-disable @typescript-eslint/naming-convention */
-		// const response: ServerResponse = {
-		// 	target_file: "simple.py",
-		// 	edit_start: [1, 0],
-		// 	edit_end: [2, 0],
-		// 	old_code: "x = 5\n",
-		// 	suggestions: [
-		// 		{
-		// 			score: 0.5,
-		// 			change_preview: "- x = 5\n+ x = 6\n",
-		// 			new_code: "x = 6\n",
-		// 		},
-		// 		{
-		// 			score: 0.15,
-		// 			change_preview: "  x = 5\n+ y = x + 1\n",
-		// 			new_code: "x = 5\ny = x + 1\n",
-		// 		}
-		// 	]
-		// };
 		const req = {
 			"jsonrpc": "2.0",
-			"method": "suggestAndApply",
+			"method": "suggestEdits",
 			"params": {
 				"project": project.uri.fsPath,
 				"file": relPath,
@@ -133,27 +118,27 @@ class CoeditorClient {
 			},
 			"id": 1,
 		};
-		await this.axios.post(
-			`http://localhost:${this.serverPort}`,
-			req,
-		).then(async (response: ServerResponse) => {
-			response.target_file = project.uri.fsPath + "/" + response.target_file;
-			const suggestionSnippets = response.suggestions.map((suggestion) => {
-				return `================= Score: ${suggestion.score.toFixed(2)} =================\n${suggestion.change_preview}\n`;
-			});
-			this.lastResponse = response;
-			this.suggestionSnippets = suggestionSnippets;
-			this.virtualFiles[suggestionFilePath] = suggestionSnippets.join("");
-
-			// open a new document
-			const suggestionUri = vscode.Uri.from({scheme: SCHEME, path: suggestionFilePath});
-			const resultDoc = await vscode.workspace.openTextDocument(suggestionUri);
-			const viewColumn = editor.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
-			vscode.window.showTextDocument(resultDoc, {preserveFocus: false, preview: false, viewColumn: viewColumn});
-		}).catch((error: any) => {
-			console.log(error);
-			vscode.window.showErrorMessage(`Unable to apply suggested edit. Error: ${error}`);
+		const fullResponse = await this.axios.post(`http://localhost:${this.serverPort}`, req);
+		if(fullResponse.data.error !== undefined) {
+			vscode.window.showErrorMessage("Coeditor failed with error: " + fullResponse.data.error.message);
+			return;
+		}
+		const response: ServerResponse = fullResponse.data.result;
+		response.target_file = project.uri.fsPath + "/" + response.target_file;
+		console.log(response.suggestions);
+		const suggestionSnippets = response.suggestions.map((suggestion) => {
+			return `================= Score: ${suggestion.score.toFixed(2)} =================\n${suggestion.change_preview}\n\n`;
 		});
+		this.lastResponse = response;
+		this.suggestionSnippets = suggestionSnippets;
+		this.virtualFiles[suggestionFilePath] = suggestionSnippets.join("");
+		
+		// open a new document
+		const suggestionUri = vscode.Uri.from({scheme: SCHEME, path: suggestionFilePath});
+		this.fileChangeEmitter.fire(suggestionUri);
+		const resultDoc = await vscode.workspace.openTextDocument(suggestionUri);
+		const viewColumn = editor.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
+		vscode.window.showTextDocument(resultDoc, {preserveFocus: false, preview: false, viewColumn: viewColumn});
 	}
 
 	async applySuggestion(index: number) {
@@ -199,3 +184,23 @@ interface ServerResponse {
 	old_code: string;
 	suggestions: EditSuggestion[];
 }
+
+
+const fakeResponse: ServerResponse = {
+	target_file: "simple.py",
+	edit_start: [1, 0],
+	edit_end: [2, 0],
+	old_code: "x = 5\n",
+	suggestions: [
+		{
+			score: 0.5,
+			change_preview: "- x = 5\n+ x = 6\n",
+			new_code: "x = 6\n",
+		},
+		{
+			score: 0.15,
+			change_preview: "  x = 5\n+ y = x + 1\n",
+			new_code: "x = 5\ny = x + 1\n",
+		}
+	]
+};
