@@ -2,7 +2,7 @@
   "name": "vscode-coeditor",
   "displayName": "VSCode Coeditor",
   "description": "A VSCode plugin for suggesting Python Code edits using the Coeditor model.",
-  "version": "0.0.4",
+  "version": "0.2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/MrVPlusOne/vscode-coeditor"
