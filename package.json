@@ -60,6 +60,6 @@
   "dependencies": {
     "axios": "^1.2.1",
     "got": "^12.5.3",
-    "json-rpc-2.0": "^1.4.2"
+    "node-fetch": "^2.6.7"
   }
 }
