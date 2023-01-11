@@ -3,14 +3,15 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
+const axios = require('axios').default;
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export async function activate(context: vscode.ExtensionContext) {
-	const axios = await require('axios').default;
+	// const axios = await require('axios').default;
 	const serverPort = 5042;
 
-	const coeditorClient = new CoeditorClient(context, axios, serverPort);
+	const coeditorClient = new CoeditorClient(context, serverPort);
 
 	const disposables = [
 		vscode.commands.registerCommand('vscode-coeditor.suggestEdit', coeditorClient.suggestEdit, coeditorClient),
@@ -28,7 +29,6 @@ const suggestionFilePath = "/CoeditorSuggestions";
 
 class CoeditorClient {
 	serverPort: number;
-	axios: any;
 	codeLensProvider: vscode.CodeLensProvider;
 	lastResponse: ServerResponse | undefined = undefined;
 	suggestionSnippets: string[] = [];
@@ -36,12 +36,11 @@ class CoeditorClient {
 	fileChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
 
 
-	constructor(context: vscode.ExtensionContext, axios: any, serverPort: number) {
+	constructor(context: vscode.ExtensionContext, serverPort: number) {
 		this.serverPort = serverPort;
 		if (axios === undefined) {
 			throw new Error('axios is undefined');
 		}
-		this.axios = axios;
 		const client = this;
 		const codeLensProvider: vscode.CodeLensProvider = {
 			provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
@@ -118,7 +117,7 @@ class CoeditorClient {
 			},
 			"id": 1,
 		};
-		const fullResponse = await this.axios.post(`http://localhost:${this.serverPort}`, req);
+		const fullResponse = await axios.post(`http://localhost:${this.serverPort}`, req);
 		if(fullResponse.data.error !== undefined) {
 			vscode.window.showErrorMessage("Coeditor failed with error: " + fullResponse.data.error.message);
 			return;
@@ -127,7 +126,7 @@ class CoeditorClient {
 		response.target_file = project.uri.fsPath + "/" + response.target_file;
 		console.log(response.suggestions);
 		const suggestionSnippets = response.suggestions.map((suggestion) => {
-			return `================= Score: ${suggestion.score.toFixed(2)} =================\n${suggestion.change_preview}\n\n`;
+			return `================= Score: ${suggestion.score.toPrecision(3)} =================\n${suggestion.change_preview}\n\n`;
 		});
 		this.lastResponse = response;
 		this.suggestionSnippets = suggestionSnippets;
