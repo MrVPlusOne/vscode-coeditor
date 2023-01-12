@@ -155,9 +155,12 @@ class CoeditorClient {
 		if (current !== this.lastResponse.old_code) {
 			vscode.window.showWarningMessage(`The code to be replaced at range ${prettyPrintRange(range)} has changed. The applied edit may no longer be valid.`);
 		}
-		await (await editor).edit((editBuilder) => {
+		const newEnd = [start.line + suggestion.new_code.split("\n").length, suggestion.new_code.split("\n").slice(-1)[0].length];
+		await editor.edit((editBuilder) => {
 			editBuilder.replace(range, suggestion.new_code);
 		});
+		this.lastResponse.edit_end = newEnd;
+		this.lastResponse.old_code = suggestion.new_code;
 	}
 }
 
