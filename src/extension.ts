@@ -9,9 +9,7 @@ const axios = require('axios').default;
 // Your extension is activated the very first time the command is executed
 export async function activate(context: vscode.ExtensionContext) {
 	// const axios = await require('axios').default;
-	const serverPort = 5042;
-
-	const coeditorClient = new CoeditorClient(context, serverPort);
+	const coeditorClient = new CoeditorClient(context);
 
 	const disposables = [
 		vscode.commands.registerCommand('vscode-coeditor.suggestEdit', coeditorClient.suggestEdit, coeditorClient),
@@ -28,7 +26,6 @@ const suggestionFilePath = "/CoeditorSuggestions";
 
 
 class CoeditorClient {
-	serverPort: number;
 	codeLensProvider: vscode.CodeLensProvider;
 	lastResponse: ServerResponse | undefined = undefined;
 	suggestionSnippets: string[] = [];
@@ -36,8 +33,7 @@ class CoeditorClient {
 	fileChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
 
 
-	constructor(context: vscode.ExtensionContext, serverPort: number) {
-		this.serverPort = serverPort;
+	constructor(context: vscode.ExtensionContext) {
 		if (axios === undefined) {
 			throw new Error('axios is undefined');
 		}
@@ -117,7 +113,8 @@ class CoeditorClient {
 			},
 			"id": 1,
 		};
-		const fullResponse = await axios.post(`http://localhost:${this.serverPort}`, req);
+		const serverLink = vscode.workspace.getConfiguration().get("server.url");
+		const fullResponse = await axios.post(serverLink, req);
 		if(fullResponse.data.error !== undefined) {
 			vscode.window.showErrorMessage("Coeditor failed with error: " + fullResponse.data.error.message);
 			return;
