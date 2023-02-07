@@ -12,7 +12,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	const coeditorClient = new CoeditorClient(context);
 
 	const disposables = [
-		vscode.commands.registerCommand('vscode-coeditor.suggestEdit', coeditorClient.suggestEdit, coeditorClient),
+		vscode.commands.registerCommand('vscode-coeditor.suggestEdits', coeditorClient.suggestEdits, coeditorClient),
 		vscode.commands.registerCommand('vscode-coeditor.applySuggestion', coeditorClient.applySuggestion, coeditorClient),
 	];
 	context.subscriptions.push(...disposables);
@@ -76,7 +76,7 @@ class CoeditorClient {
 	}
 
 	
-	async suggestEdit() {
+	async suggestEdits() {
 		// if the activeText Editor is undefined, display an error
 		if (vscode.window.activeTextEditor === undefined) {
 			vscode.window.showErrorMessage('No active text editor. This command uses the ' +
@@ -102,6 +102,7 @@ class CoeditorClient {
 		}
 		
 		vscode.window.showInformationMessage(`Suggesting edit at line ${lineNumber} in ${relPath}`);
+		const writeLogs = vscode.workspace.getConfiguration().get("coeditor.writeLogs");
 
 		const req = {
 			"jsonrpc": "2.0",
@@ -109,18 +110,18 @@ class CoeditorClient {
 			"params": {
 				"project": project.uri.fsPath,
 				"file": relPath,
-				"line": lineNumber
+				"line": lineNumber,
+				"writeLogs": writeLogs,
 			},
 			"id": 1,
 		};
-		const serverLink = vscode.workspace.getConfiguration().get("server.url");
+		const serverLink = vscode.workspace.getConfiguration().get("coeditor.serverURL");
 		const fullResponse = await axios.post(serverLink, req);
 		if(fullResponse.data.error !== undefined) {
 			vscode.window.showErrorMessage("Coeditor failed with error: " + fullResponse.data.error.message);
 			return;
 		}
 		const response: ServerResponse = fullResponse.data.result;
-		response.target_file = project.uri.fsPath + "/" + response.target_file;
 		console.log(response.suggestions);
 		const suggestionSnippets = response.suggestions.map((suggestion) => {
 			return `================= Score: ${suggestion.score.toPrecision(3)} =================\n${suggestion.change_preview}\n\n`;

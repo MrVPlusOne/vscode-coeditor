@@ -1,9 +1,9 @@
 {
   "name": "vscode-coeditor",
   "displayName": "VSCode Coeditor",
-  "description": "A VSCode plugin for suggesting Python Code edits using the Coeditor model.",
+  "description": "AI-powered Python code change suggestion using the Coeditor transformer model.",
   "publisher": "JiayiWei",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "repository": {
     "type": "git",
     "url": "https://github.com/MrVPlusOne/vscode-coeditor"
@@ -15,22 +15,22 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:vscode-coeditor.suggestEdit",
+    "onCommand:vscode-coeditor.suggestEdits",
     "onCommand:vscode-coeditor.show-diff"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "vscode-coeditor.suggestEdit",
-        "title": "Suggest edit below this line",
+        "command": "vscode-coeditor.suggestEdits",
+        "title": "Suggest edits below this line",
         "category": "Coeditor"
       }
     ],
     "menus": {
       "editor/context": [
         {
-          "command": "vscode-coeditor.suggestEdit",
+          "command": "vscode-coeditor.suggestEdits",
           "when": "editorLangId == python",
           "group": "1_modification"
         }
@@ -39,10 +39,15 @@
     "configuration": {
       "title": "Coeditor",
       "properties": {
-        "server.url": {
+        "coeditor.serverURL": {
           "type": "string",
           "default": "http://localhost:5042",
           "description": "The URL of the Coeditor inference service."
+        },
+        "coeditor.writeLogs": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to write the model logs to `<project>/.coeditor_logs`."
         }
       }
     }
