@@ -13,9 +13,21 @@ export async function activate(context: vscode.ExtensionContext) {
 	const coeditorClient = new CoeditorClient(context);
 
 	const disposables = [
-		vscode.commands.registerCommand('vscode-coeditor.suggestEditsForSelection', coeditorClient.suggestEditsForSelection, coeditorClient),
-		vscode.commands.registerCommand('vscode-coeditor.suggestEditsAgain', coeditorClient.suggestEditsAgain, coeditorClient),
-		vscode.commands.registerCommand('vscode-coeditor.applySuggestion', coeditorClient.applySuggestion, coeditorClient),
+		vscode.commands.registerCommand(
+			'vscode-coeditor.suggestEditsForSelection', 
+			coeditorClient.suggestEditsForSelection, 
+			coeditorClient
+		),
+		vscode.commands.registerCommand(
+			'vscode-coeditor.suggestEditsAgain', 
+			coeditorClient.suggestEditsAgain, 
+			coeditorClient
+		),
+		vscode.commands.registerCommand(
+			'vscode-coeditor.applySuggestion', 
+			coeditorClient.applySuggestion, 
+			coeditorClient
+		),
 	];
 	context.subscriptions.push(...disposables);
 }
@@ -111,7 +123,7 @@ class CoeditorClient {
 		let editor: vscode.TextEditor;
 		let targetLines: number[] | number;
 		let targetDesc: string;
-		if (reuseLastTargets){
+		if (reuseLastTargets) {
 			if (this.targetEditor === undefined) {
 				vscode.window.showErrorMessage('No target editor found.');
 				return;
@@ -124,7 +136,7 @@ class CoeditorClient {
 			targetLines = this.target_lines;
 			targetDesc = `for line ${targetLines[0]}--${targetLines[targetLines.length - 1]}`;
 		} else {
-		// if the activeText Editor is undefined, display an error
+			// if the activeText Editor is undefined, display an error
 			if (vscode.window.activeTextEditor === undefined) {
 				vscode.window.showErrorMessage('No active text editor. This command uses the ' +
 					'location of the cursor to determine which code element to edit.');
@@ -134,7 +146,9 @@ class CoeditorClient {
 			const lineBegin = editor.selection.start.line + 1;
 			const lineEnd = editor.selection.end.line + 1;
 			if (lineBegin !== lineEnd) {
-				targetLines = Array.from({length: lineEnd - lineBegin + 1}, (_, i) => i + lineBegin);
+				targetLines = Array.from(
+					{ length: lineEnd - lineBegin + 1 }, (_, i) => i + lineBegin
+				);
 				targetDesc = `for line ${lineBegin}--${lineEnd}`;
 			} else {
 				targetLines = lineBegin;
@@ -144,17 +158,21 @@ class CoeditorClient {
 
 		const project = vscode.workspace.getWorkspaceFolder(editor.document.uri);
 		if (project === undefined) {
-			vscode.window.showErrorMessage('Unable to determine the project folder for the active editor.');
+			vscode.window.showErrorMessage(
+				'Unable to determine the project folder for the active editor.'
+			);
 			return;
 		}
-		
+
 		const filePath = editor.document.fileName;
 		const relPath = vscode.workspace.asRelativePath(filePath);
 		this.targetEditor = editor;
 
 		const saved = await editor.document.save();
 		if (!saved) {
-			vscode.window.showErrorMessage('Unable to proceed: failed to save the active editor.');
+			vscode.window.showErrorMessage(
+				'Unable to proceed: failed to save the active editor.'
+			);
 			return;
 		}
 
@@ -175,7 +193,9 @@ class CoeditorClient {
 		const serverLink = vscode.workspace.getConfiguration().get("coeditor.serverURL");
 		const fullResponse = await axios.post(serverLink, req);
 		if (fullResponse.data.error !== undefined) {
-			vscode.window.showErrorMessage("Coeditor failed with error: " + fullResponse.data.error.message);
+			vscode.window.showErrorMessage(
+				"Coeditor failed with error: " + fullResponse.data.error.message
+			);
 			return;
 		}
 		const response: ServerResponse = fullResponse.data.result;
