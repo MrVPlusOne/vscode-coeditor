@@ -14,18 +14,23 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	const disposables = [
 		vscode.commands.registerCommand(
-			'vscode-coeditor.suggestEditsForSelection', 
-			coeditorClient.suggestEditsForSelection, 
+			'coeditor.suggestEditsForSelection',
+			coeditorClient.suggestEditsForSelection,
 			coeditorClient
 		),
 		vscode.commands.registerCommand(
-			'vscode-coeditor.suggestEditsAgain', 
-			coeditorClient.suggestEditsAgain, 
+			'coeditor.suggestEdits',
+			coeditorClient.suggestEditsAgain,
 			coeditorClient
 		),
 		vscode.commands.registerCommand(
-			'vscode-coeditor.applySuggestion', 
-			coeditorClient.applySuggestion, 
+			'coeditor.trySuggestEdits',
+			coeditorClient.trySuggestEditsAgain,
+			coeditorClient
+		),
+		vscode.commands.registerCommand(
+			'coeditor.applySuggestion',
+			coeditorClient.applySuggestion,
 			coeditorClient
 		),
 	];
@@ -37,18 +42,20 @@ export function deactivate() { }
 
 const SCHEME = "coeditor";
 const suggestionFilePath = "/CoeditorSuggestions";
+type ErrorMsg = string;
 
 
 class CoeditorClient {
 	codeLensProvider: vscode.CodeLensProvider;
-	lastResponse: ServerResponse | undefined = undefined;
-	suggestionSnippets: string[] = [];
 	virtualFiles: { [name: string]: string; } = {};
 	fileChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
 	channel: vscode.OutputChannel;
 	targetDecoration: vscode.TextEditorDecorationType;
-	target_lines: number[] | undefined = undefined;
-	targetEditor: vscode.TextEditor | undefined = undefined;
+
+	lastResponse: ServerResponse | undefined = undefined;
+	lastSuggestions: string[] = [];
+	lastTargetUri: vscode.Uri | undefined = undefined;
+	lastTargetLines: number[] | undefined = undefined;
 
 
 	constructor(context: vscode.ExtensionContext) {
@@ -63,13 +70,13 @@ class CoeditorClient {
 					return [];
 				}
 				let offset = 0;
-				const actions = client.suggestionSnippets.map((snippet, i) => {
+				const actions = client.lastSuggestions.map((snippet, i) => {
 					const pos = document.positionAt(offset);
 					const range = new vscode.Range(pos, pos);
 					offset += snippet.length;
 					return new vscode.CodeLens(range, {
 						title: 'Apply suggestion',
-						command: 'vscode-coeditor.applySuggestion',
+						command: 'coeditor.applySuggestion',
 						arguments: [i]
 					});
 				});
@@ -99,12 +106,12 @@ class CoeditorClient {
 			rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
 		});
 
-		vscode.workspace.onDidCloseTextDocument(doc => {
-			console.log(`onDidCloseTextDocument: ${doc.uri}`);
-			if (doc.uri.scheme === SCHEME && doc.uri.path === suggestionFilePath) {
-				console.log("onDidCloseTextDocument (coeditor)");
-				client.target_lines = undefined;
-				client.show_edit_lines();
+		vscode.window.onDidChangeActiveTextEditor(editor => {
+			if (!editor) {
+				return;
+			}
+			if (editor.document.uri === this.lastTargetUri) {
+				client.setTargetLines(editor);
 			}
 		}, client, context.subscriptions);
 
@@ -115,68 +122,95 @@ class CoeditorClient {
 		await this.suggestEdits(true);
 	}
 
+	async trySuggestEditsAgain() {
+		await this.suggestEdits(true, true);
+	}
+
 	async suggestEditsForSelection() {
 		await this.suggestEdits(false);
 	}
 
-	async suggestEdits(reuseLastTargets: boolean) {
-		let editor: vscode.TextEditor;
-		let targetLines: number[] | number;
-		let targetDesc: string;
-		if (reuseLastTargets) {
-			if (this.targetEditor === undefined) {
-				vscode.window.showErrorMessage('No target editor found.');
-				return;
-			}
-			if (this.target_lines === undefined) {
-				vscode.window.showErrorMessage('No target lines found.');
-				return;
-			}
-			editor = this.targetEditor;
-			targetLines = this.target_lines;
-			targetDesc = `for line ${targetLines[0]}--${targetLines[targetLines.length - 1]}`;
-		} else {
-			// if the activeText Editor is undefined, display an error
-			if (vscode.window.activeTextEditor === undefined) {
-				vscode.window.showErrorMessage('No active text editor. This command uses the ' +
-					'location of the cursor to determine which code element to edit.');
-				return;
-			}
-			editor = vscode.window.activeTextEditor;
-			const lineBegin = editor.selection.start.line + 1;
-			const lineEnd = editor.selection.end.line + 1;
-			if (lineBegin !== lineEnd) {
-				targetLines = Array.from(
-					{ length: lineEnd - lineBegin + 1 }, (_, i) => i + lineBegin
-				);
-				targetDesc = `for line ${lineBegin}--${lineEnd}`;
-			} else {
-				targetLines = lineBegin;
-				targetDesc = `at line ${targetLines}`;
+	getTargetlines(editor: vscode.TextEditor, tryReuseTargets: boolean): number | number[] | ErrorMsg {
+		if (!editor.selections) {
+			return "Current editor has no selection";
+		}
+
+		// try reuse targets if current selection is inside the last target
+		if (tryReuseTargets && this.lastTargetUri === editor.document.uri && this.lastTargetLines) {
+			const line = editor.selection.start.line;
+			if (this.lastTargetLines.includes(line)) {
+				return this.lastTargetLines;
 			}
 		}
 
-		const project = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+		const lineBegin = editor.selection.start.line + 1;
+		const lineEnd = editor.selection.end.line + 1;
+		if (lineBegin !== lineEnd) {
+			return Array.from(
+				{ length: lineEnd - lineBegin + 1 }, (_, i) => i + lineBegin
+			);
+		} else {
+			return lineBegin;
+		}
+	}
+
+	async suggestEdits(tryReuseTargets: boolean, silentFail: boolean = false) {
+		const client = this;
+		function show_error(msg: string) {
+			if (!silentFail) {
+				vscode.window.showErrorMessage(msg);
+			}
+			const tag = silentFail ? "[error]" : "[silent error]";
+			client.channel.appendLine(tag + " " + msg);
+		}
+
+		// if the activeText Editor is undefined, display an error
+		const editor = vscode.window.activeTextEditor;
+		if (editor === undefined) {
+			show_error('No active text editor. This command uses the ' +
+				'location of the cursor to determine which code element to edit.');
+			return;
+		}
+		const targetLines = this.getTargetlines(editor, tryReuseTargets);
+		if (typeof targetLines === "string") {
+			show_error(targetLines);
+			return;
+		}
+		const targetUri = editor.document.uri;
+		const targetEditor = editor;
+
+		this.lastTargetUri = targetUri;
+		const viewColumn = targetEditor.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
+		// check the type of targetLines
+		const targetDesc = (
+			(typeof targetLines === 'number') ? 
+			`at line ${targetLines}` : 
+			`for line ${targetLines[0]}--${targetLines[targetLines.length - 1]}`
+		);
+
+		const project = vscode.workspace.getWorkspaceFolder(targetUri);
 		if (project === undefined) {
-			vscode.window.showErrorMessage(
+			show_error(
 				'Unable to determine the project folder for the active editor.'
 			);
 			return;
 		}
-
-		const filePath = editor.document.fileName;
+		
+		const filePath = targetUri.fsPath;
 		const relPath = vscode.workspace.asRelativePath(filePath);
-		this.targetEditor = editor;
 
-		const saved = await editor.document.save();
+		const saved = await targetEditor.document.save();
 		if (!saved) {
-			vscode.window.showErrorMessage(
-				'Unable to proceed: failed to save the active editor.'
-			);
+			show_error('Unable to proceed: failed to save the active editor.');
 			return;
 		}
 
-		vscode.window.showInformationMessage(`Suggesting edit ${targetDesc} in ${relPath}`);
+		const prompt = `Suggesting edits for '${relPath}' (${targetDesc})...`;
+		const panelUri = this.updateSuggestPanel(prompt);
+		const panelDoc = await vscode.workspace.openTextDocument(panelUri);
+		// open a new document
+		await vscode.window.showTextDocument(panelDoc, { preserveFocus: false, preview: false, viewColumn: viewColumn });
+
 		const writeLogs = vscode.workspace.getConfiguration().get("coeditor.writeLogs");
 
 		const req = {
@@ -193,7 +227,7 @@ class CoeditorClient {
 		const serverLink = vscode.workspace.getConfiguration().get("coeditor.serverURL");
 		const fullResponse = await axios.post(serverLink, req);
 		if (fullResponse.data.error !== undefined) {
-			vscode.window.showErrorMessage(
+			show_error(
 				"Coeditor failed with error: " + fullResponse.data.error.message
 			);
 			return;
@@ -213,17 +247,18 @@ class CoeditorClient {
 			return `================= Score: ${suggestion.score.toPrecision(3)} =================\n${suggestion.change_preview}\n\n`;
 		});
 		this.lastResponse = response;
-		this.suggestionSnippets = suggestionSnippets;
-		this.virtualFiles[suggestionFilePath] = suggestionSnippets.join("");
-		this.target_lines = response.target_lines;
-		this.show_edit_lines();
+		this.lastSuggestions = suggestionSnippets;
+		this.lastTargetLines = response.target_lines;
+		client.setTargetLines(targetEditor);
+		this.updateSuggestPanel(suggestionSnippets.join(""));
+		// todo: notify the change
+	}
 
-		// open a new document
+	updateSuggestPanel(content: string) {
+		this.virtualFiles[suggestionFilePath] = content;
 		const suggestionUri = vscode.Uri.from({ scheme: SCHEME, path: suggestionFilePath });
 		this.fileChangeEmitter.fire(suggestionUri);
-		const resultDoc = await vscode.workspace.openTextDocument(suggestionUri);
-		const viewColumn = editor.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
-		await vscode.window.showTextDocument(resultDoc, { preserveFocus: false, preview: false, viewColumn: viewColumn });
+		return suggestionUri;
 	}
 
 	async applySuggestion(index: number) {
@@ -253,19 +288,18 @@ class CoeditorClient {
 		this.lastResponse.old_code = suggestion.new_code;
 	}
 
-	show_edit_lines() {
-		if (this.targetEditor === undefined) {
-			return;
-		}
-		const editor = this.targetEditor;
-		if (this.target_lines === undefined) {
+	setTargetLines(editor: vscode.TextEditor) {
+		if (this.lastTargetLines === undefined) {
 			this.channel.appendLine("Clearing decorations.");
 			editor.setDecorations(this.targetDecoration, []);
 			return;
 		}
-		const start = new vscode.Position(this.target_lines[0] - 1, 0);
-		const end = new vscode.Position(this.target_lines.slice(-1)[0] - 1, 0);
-		editor.setDecorations(this.targetDecoration, [new vscode.Range(start, end)]);
+		
+		editor.setDecorations(this.targetDecoration, this.lastTargetLines.map((line) => {
+			const start = new vscode.Position(line - 1, 0);
+			const end = new vscode.Position(line - 1, 0);
+			return new vscode.Range(start, end);
+		}));
 	}
 
 }
