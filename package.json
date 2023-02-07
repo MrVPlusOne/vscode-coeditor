@@ -3,7 +3,7 @@
   "displayName": "VSCode Coeditor",
   "description": "AI-powered Python code change suggestion using the Coeditor transformer model.",
   "publisher": "JiayiWei",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/MrVPlusOne/vscode-coeditor"
@@ -15,22 +15,25 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:vscode-coeditor.suggestEdits",
-    "onCommand:vscode-coeditor.show-diff"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "vscode-coeditor.suggestEdits",
-        "title": "Suggest edits below this line",
+        "command": "vscode-coeditor.suggestEditsForSelection",
+        "title": "Suggest edits for selection",
+        "category": "Coeditor"
+      },
+      {
+        "command": "vscode-coeditor.suggestEditsAgain",
+        "title": "Suggest edits again",
         "category": "Coeditor"
       }
     ],
     "menus": {
       "editor/context": [
         {
-          "command": "vscode-coeditor.suggestEdits",
+          "command": "vscode-coeditor.suggestEditsForSelection",
           "when": "editorLangId == python",
           "group": "1_modification"
         }

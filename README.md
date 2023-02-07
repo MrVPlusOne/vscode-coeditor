@@ -4,10 +4,11 @@ AI-powered Python code change suggestion using the Coeditor transformer model.
 
 ## Features
 
-- The extension provides the command `Coeditor: Suggest edits below this line`, which uses the cursor's line position to determine which Python function to perform the edit.
 - The extension is designed to work with Git projects and the model will condition its prediction on all the changes you made since the latest commit (plus any staged changes).
-- Inside the target function, only the changes you made before the cursor line (inclusive) are visible to the model, and it will make suggestions to the lines below the cursor.
-- You can also access the command from the editor context menu by right-clicking (available in `.py` files only).
+- The extension provides two commands for invoking the model. 
+    - The command `Coeditor: Suggest edits for selection` use the current text selection to determine which lines to edit (when less than 1 lines are selected, it will select the lines below the cursor instead).
+    - The command `Coeditor: Suggest edits again` reused the target line region established by `Suggest edits for selection`. You can run this command repeatedly each time you make additional edits to the target region.
+- You can also access the `Suggest edits for selection` command from the editor context menu by right-clicking (available in `.py` files only).
 
 ## Installing the Model
 
@@ -37,6 +38,9 @@ will first save the file before calling the service.
 - When suggesting edits with `drop_comments=True`, all comments and doc strings are removed before feeding the code to the model. Applying the suggested chagnes back onto the orginal code with comments can be tricky and may not always work. We recommend using `drop_comments=False` for now.
 
 ## Release Notes
+### 0.3.0
+- Replace the old command with `Coeditor: Suggest edits for selection` and `Coeditor: Suggest edits again`.
+
 ### 0.2.4
 - Fix setting paths. Add option to write logs directly to the target project.
 
