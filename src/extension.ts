@@ -50,12 +50,12 @@ class CoeditorClient {
 	virtualFiles: { [name: string]: string; } = {};
 	fileChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
 	channel: vscode.OutputChannel;
-	targetDecoration: vscode.TextEditorDecorationType;
+	statusDecorations: Map<string, vscode.TextEditorDecorationType>;
 
 	lastResponse: ServerResponse | undefined = undefined;
 	lastSuggestions: string[] = [];
 	lastTargetUri: vscode.Uri | undefined = undefined;
-	lastTargetLines: number[] | undefined = undefined;
+	lineStatus: [number, string][] | undefined = undefined;
 
 	async suggestEditsAgain() {
 		await this.suggestEdits(true);
@@ -109,22 +109,22 @@ class CoeditorClient {
 			vscode.workspace.registerTextDocumentContentProvider(SCHEME, contentProvider),
 		);
 
-		this.targetDecoration = this._createDecoration(context);
+		this.statusDecorations = this._createDecorations(context);
 
 		// update decorations on theme change
 		context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
 			if (event.affectsConfiguration('workbench.colorTheme')) {
 				// get color theme
-				client.targetDecoration.dispose();
-				client.targetDecoration = this._createDecoration(context);
+				client.statusDecorations.forEach(dec => dec.dispose());
+				client.statusDecorations = this._createDecorations(context);
 				const editor = vscode.window.activeTextEditor;
-				client._addDecorationToEditor(editor);
+				client._setLineStatus(editor);
 			}
 		}));
 
 		// add decorations to active editor
 		vscode.window.onDidChangeActiveTextEditor(editor => {
-			client._addDecorationToEditor(editor);
+			client._setLineStatus(editor);
 		}, client, context.subscriptions);
 
 		// optionally suggestEdits on file save
@@ -170,8 +170,12 @@ class CoeditorClient {
 			show_error(targetLines);
 			return;
 		}
-		this.lastTargetLines = (typeof targetLines === 'number') ? [targetLines] : targetLines;
-		client._setTargetLines(targetEditor);
+		if (typeof targetLines === "number") {
+			this.lineStatus = [[targetLines, " "]];
+		} else {
+			this.lineStatus = targetLines.map(i => [i, " "]);
+		}
+		client._setLineStatus(targetEditor);
 
 		const viewColumn = targetEditor.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
 		// check the type of targetLines
@@ -243,8 +247,8 @@ class CoeditorClient {
 		});
 		this.lastResponse = response;
 		this.lastSuggestions = suggestionSnippets;
-		this.lastTargetLines = response.target_lines;
-		client._setTargetLines(targetEditor);
+		this.lineStatus = response.suggestions[0].line_status!;
+		client._setLineStatus(targetEditor);
 		this._updateSuggestPanel(suggestionSnippets.join(""));
 		// todo: notify the change
 	}
@@ -276,28 +280,30 @@ class CoeditorClient {
 		this.lastResponse.old_code = suggestion.new_code;
 	}
 
-	_createDecoration(context: vscode.ExtensionContext) {
+	_createDecorations(context: vscode.ExtensionContext) {
 		const theme = vscode.workspace.getConfiguration().get('workbench.colorTheme');
 		const isLight = (typeof theme === "string") ? theme.toLowerCase().includes('light') : false;
-		const icon = isLight ? "images/pencil-light.svg" : "images/pencil-dark.svg";
 		const rulerColor = isLight ? "#d6d6d6" : "white";
+		const iconDefault = isLight ? "images/pencil-light.svg" : "images/pencil-dark.svg";
+		const iconMap = {
+			" ": iconDefault,
+			"R": "images/pencil-blue.svg",
+			"A": "images/pencil-green.svg",
+			"D": "images/pencil-red.svg",
+		};
 
-		return vscode.window.createTextEditorDecorationType({
-			gutterIconPath: context.asAbsolutePath(icon),
-			overviewRulerColor: rulerColor,
-			gutterIconSize: "contain",
-			rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
-			overviewRulerLane: vscode.OverviewRulerLane.Right,
+		const result = new Map<string, vscode.TextEditorDecorationType>();
+		Object.entries(iconMap).forEach(([tag, path]) => {
+			result.set(tag, vscode.window.createTextEditorDecorationType({
+				gutterIconPath: context.asAbsolutePath(path),
+				overviewRulerColor: rulerColor,
+				gutterIconSize: "contain",
+				rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+				overviewRulerLane: vscode.OverviewRulerLane.Right,
+			}));
 		});
-	}
 
-	_addDecorationToEditor(editor: vscode.TextEditor | undefined) {
-		if (!editor) {
-			return;
-		}
-		if (editor.document.uri === this.lastTargetUri) {
-			this._setTargetLines(editor);
-		}
+		return result;
 	}
 
 
@@ -310,10 +316,11 @@ class CoeditorClient {
 		}
 
 		// try reuse targets if current selection is inside the last target
-		if (tryReuseTargets && this.lastTargetUri === editor.document.uri && this.lastTargetLines) {
+		if (tryReuseTargets && this.lastTargetUri === editor.document.uri && this.lineStatus) {
 			const line = editor.selection.start.line;
-			if (this.lastTargetLines.includes(line)) {
-				return this.lastTargetLines;
+			const lastLines = this.lineStatus.map(x => x[0]);
+			if (lastLines.includes(line)) {
+				return lastLines;
 			}
 		}
 
@@ -336,21 +343,34 @@ class CoeditorClient {
 	}
 
 
-	_setTargetLines(editor: vscode.TextEditor) {
-		if (this.lastTargetLines === undefined) {
-			this.channel.appendLine("Clearing decorations.");
-			editor.setDecorations(this.targetDecoration, []);
+	_setLineStatus(editor: vscode.TextEditor | undefined) {
+		if (!editor || editor.document.uri !== this.lastTargetUri) {
 			return;
 		}
+		if (this.lineStatus === undefined) {
+			this.channel.appendLine("Clearing decorations.");
+			this.statusDecorations.forEach((decoration) => {
+				editor.setDecorations(decoration, []);
+			});
+			return;
+		}
+		const tag2lines = new Map<string, number[]>();
+		allStatusTags.forEach(tag => tag2lines.set(tag, []));
+		this.lineStatus.forEach(([line, tag]) => { tag2lines.get(tag)!.push(line); });
 
-		editor.setDecorations(this.targetDecoration, this.lastTargetLines.map((line) => {
-			const start = new vscode.Position(line - 1, 0);
-			const end = new vscode.Position(line - 1, 0);
-			return new vscode.Range(start, end);
-		}));
+		tag2lines.forEach((lines, tag) => {
+			console.log("Setting decoration for tag:", tag, "lines:", lines);
+			const dec = this.statusDecorations.get(tag)!;
+			editor.setDecorations(dec, lines.map((line) => {
+				const start = new vscode.Position(line - 1, 0);
+				const end = new vscode.Position(line - 1, 0);
+				return new vscode.Range(start, end);
+			}));
+		});
 	}
-
 }
+
+const allStatusTags = [" ", "R", "A", "D"];
 
 function prettyPrintRange(range: vscode.Range) {
 	return `(${range.start.line + 1}:${range.start.character})-(${range.end.line + 1}:${range.end.character})`;
@@ -362,6 +382,7 @@ interface EditSuggestion {
 	score: number;
 	change_preview: string;
 	new_code: string;
+	line_status: Array<[number, string]>;
 }
 
 interface ServerResponse {
@@ -384,12 +405,14 @@ const fakeResponse: ServerResponse = {
 			score: 0.5,
 			change_preview: "- x = 5\n+ x = 6\n",
 			new_code: "x = 6\n",
+			line_status: [[0, "R"]]
 		},
 		{
 			score: 0.15,
 			change_preview: "  x = 5\n+ y = x + 1\n",
 			new_code: "x = 5\ny = x + 1\n",
-		}
+			line_status: [[0, "R"]]
+		},
 	],
 	target_lines: [1, 2],
 };
