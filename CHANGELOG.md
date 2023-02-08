@@ -1,9 +1,32 @@
 # Change Log
 
-All notable changes to the "vscode-coeditor" extension will be documented in this file.
-
-Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
 ## [Unreleased]
+### Fixed
+- Preserve editor focus when suggesting edits. (This works better for an interactive 
+setting where the user can make additional edits to prompt the model.)
+### Added
+- Clear the target line region when the suggestion panel becomes not visible.
 
-- Initial release
+## [0.3.0] - 2023-02-07
+### Changed
+- Replace the old command with `Coeditor: Suggest edits for selection` and `Coeditor: Suggest edits`.
+### Added
+- Add visual indication of the target line region.
+
+## [0.2.4]
+### Fixed
+- Fix setting paths. 
+### Added 
+- Add option to write logs directly to the target project.
+
+## [0.2.3]
+### Changed
+- Staged changes are now treated as part of the last commit.
+
+## [0.2.2]
+### Added
+- The extension now tracks which suggestion has already been applied so the user can directly click another suggestion without having to undo the previously applied one.
+
+## [0.0.2]
+- Initial release.

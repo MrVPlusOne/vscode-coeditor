@@ -37,21 +37,5 @@ pipenv run python scripts/start_server.py
 will first save the file before calling the service.
 
 ## Release Notes
-### 0.3.0
-- Replace the old command with `Coeditor: Suggest edits for selection` and `Coeditor: Suggest edits`.
-- Add visual indication of the target line region.
-
-### 0.2.4
-- Fix setting paths. Add option to write logs directly to the target project.
-
-### 0.2.3
-- Staged changes are now treated as part of the last commit.
-
-### 0.2.2
-
-- The extension now tracks which suggestion has already been applied so the user can directly click another suggestion without having to undo the previously applied one.
-
-### 0.0.2
-
-- Initial release.
+See [CHANGELOG.md](CHANGELOG.md).
 

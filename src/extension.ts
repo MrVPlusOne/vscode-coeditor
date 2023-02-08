@@ -81,15 +81,24 @@ class CoeditorClient {
 					return [];
 				}
 				let offset = 0;
-				const actions = client.lastSuggestions.map((snippet, i) => {
-					const pos = document.positionAt(offset);
-					const range = new vscode.Range(pos, pos);
+				const actions = client.lastSuggestions.flatMap((snippet, i) => {
+					const start = document.positionAt(offset);
+					const startRange = new vscode.Range(start, start);
 					offset += snippet.length;
-					return new vscode.CodeLens(range, {
-						title: 'Apply suggestion',
-						command: 'coeditor.applySuggestion',
-						arguments: [i]
-					});
+					const end = document.positionAt(offset-2);
+					const endRange = new vscode.Range(end, end);
+					return [
+						new vscode.CodeLens(startRange, {
+							title: 'Apply suggestion',
+							command: 'coeditor.applySuggestion',
+							arguments: [i]
+						}),
+						new vscode.CodeLens(endRange, {
+							title: 'Apply above suggestion',
+							command: 'coeditor.applySuggestion',
+							arguments: [i]
+						})
+					];
 				});
 
 				return actions;
@@ -125,6 +134,20 @@ class CoeditorClient {
 		// add decorations to active editor
 		vscode.window.onDidChangeActiveTextEditor(editor => {
 			client._setLineStatus(editor);
+		}, client, context.subscriptions);
+
+		// remove target lines when suggestion panel is not visible
+		// ideally we want to do this when the panel is closed, but there is no reliable 
+		// event for that at the moment
+		vscode.window.onDidChangeVisibleTextEditors(editors => {
+			const suggestPanelVisible = editors.some(e => e.document.uri.scheme === SCHEME && e.document.uri.fsPath === suggestionFilePath);
+			if (!suggestPanelVisible) {
+				client.lineStatus = undefined;
+				const targetEditor = editors.find(e => e.document.uri === client.lastTargetUri);
+				if (targetEditor) {
+					client._setLineStatus(targetEditor);
+				}
+			}
 		}, client, context.subscriptions);
 
 		// optionally suggestEdits on file save
@@ -207,8 +230,8 @@ class CoeditorClient {
 		const prompt = `Suggesting edits for '${relPath}' (${targetDesc})...`;
 		const panelUri = this._updateSuggestPanel(prompt);
 		const panelDoc = await vscode.workspace.openTextDocument(panelUri);
-		// open a new document
-		await vscode.window.showTextDocument(panelDoc, { preserveFocus: false, preview: false, viewColumn: viewColumn });
+		// open a new document asynchronously
+		vscode.window.showTextDocument(panelDoc, { preserveFocus: true, preview: true, viewColumn: viewColumn });
 
 		const writeLogs = vscode.workspace.getConfiguration().get("coeditor.writeLogs");
 
@@ -251,6 +274,10 @@ class CoeditorClient {
 		client._setLineStatus(targetEditor);
 		this._updateSuggestPanel(suggestionSnippets.join(""));
 		// todo: notify the change
+	}
+
+	async applyTopSuggestion() {
+		await this.applySuggestion(0);
 	}
 
 	async applySuggestion(index: number) {
