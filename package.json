@@ -1,9 +1,9 @@
 {
-  "name": "coeditor",
+  "name": "vscode-coeditor",
   "displayName": "Coeditor",
-  "description": "AI-powered Python code change suggestion using the Coeditor transformer model.",
+  "description": "AI-powered Python code editing assistant.",
   "publisher": "JiayiWei",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/MrVPlusOne/vscode-coeditor"
