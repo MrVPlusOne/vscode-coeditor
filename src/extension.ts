@@ -148,8 +148,10 @@ class CoeditorClient {
 			if (!silentFail) {
 				vscode.window.showErrorMessage(msg);
 			}
-			const tag = silentFail ? "[error]" : "[silent error]";
-			client.channel.appendLine(tag + " " + msg);
+			const tag = silentFail ? "[silent error]" : "[error]";
+			const toDisplay = tag + " " + msg;
+			client.channel.appendLine(toDisplay);
+			client._updateSuggestPanel(toDisplay);
 		}
 
 		// if the activeText Editor is undefined, display an error
@@ -159,21 +161,24 @@ class CoeditorClient {
 				'location of the cursor to determine which code element to edit.');
 			return;
 		}
+		const targetUri = editor.document.uri;
+		const targetEditor = editor;
+		this.lastTargetUri = targetUri;
+
 		const targetLines = this._getTargetlines(editor, tryReuseTargets);
 		if (typeof targetLines === "string") {
 			show_error(targetLines);
 			return;
 		}
-		const targetUri = editor.document.uri;
-		const targetEditor = editor;
+		this.lastTargetLines = (typeof targetLines === 'number') ? [targetLines] : targetLines;
+		client._setTargetLines(targetEditor);
 
-		this.lastTargetUri = targetUri;
 		const viewColumn = targetEditor.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
 		// check the type of targetLines
 		const targetDesc = (
-			(typeof targetLines === 'number') ? 
-			`at line ${targetLines}` : 
-			`for line ${targetLines[0]}--${targetLines[targetLines.length - 1]}`
+			(typeof targetLines === 'number') ?
+				`at line ${targetLines}` :
+				`for line ${targetLines[0]}--${targetLines[targetLines.length - 1]}`
 		);
 
 		const project = vscode.workspace.getWorkspaceFolder(targetUri);
@@ -183,11 +188,11 @@ class CoeditorClient {
 			);
 			return;
 		}
-		
+
 		const filePath = targetUri.fsPath;
 		const relPath = vscode.workspace.asRelativePath(filePath);
 
-		if (targetEditor.document.isDirty){
+		if (targetEditor.document.isDirty) {
 			const saved = await targetEditor.document.save();
 			if (!saved) {
 				show_error('Unable to proceed: failed to save the active editor.');
@@ -271,7 +276,7 @@ class CoeditorClient {
 		this.lastResponse.old_code = suggestion.new_code;
 	}
 
-	_createDecoration(context: vscode.ExtensionContext){
+	_createDecoration(context: vscode.ExtensionContext) {
 		const theme = vscode.workspace.getConfiguration().get('workbench.colorTheme');
 		const isLight = (typeof theme === "string") ? theme.toLowerCase().includes('light') : false;
 		const icon = isLight ? "images/pencil-light.svg" : "images/pencil-dark.svg";
@@ -337,7 +342,7 @@ class CoeditorClient {
 			editor.setDecorations(this.targetDecoration, []);
 			return;
 		}
-		
+
 		editor.setDecorations(this.targetDecoration, this.lastTargetLines.map((line) => {
 			const start = new vscode.Position(line - 1, 0);
 			const end = new vscode.Position(line - 1, 0);
