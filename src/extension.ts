@@ -57,6 +57,17 @@ class CoeditorClient {
 	lastTargetUri: vscode.Uri | undefined = undefined;
 	lastTargetLines: number[] | undefined = undefined;
 
+	async suggestEditsAgain() {
+		await this.suggestEdits(true);
+	}
+
+	async trySuggestEditsAgain() {
+		await this.suggestEdits(true, true);
+	}
+
+	async suggestEditsForSelection() {
+		await this.suggestEdits(false);
+	}
 
 	constructor(context: vscode.ExtensionContext) {
 		if (axios === undefined) {
@@ -86,12 +97,10 @@ class CoeditorClient {
 		};
 		this.codeLensProvider = codeLensProvider;
 
-		const vFiles = this.virtualFiles;
-
 		const contentProvider = new (class implements vscode.TextDocumentContentProvider {
 			onDidChange = client.fileChangeEmitter.event;
 			provideTextDocumentContent(uri: vscode.Uri): string {
-				return vFiles[uri.path];
+				return client.virtualFiles[uri.path];
 			}
 		})();
 
@@ -100,59 +109,38 @@ class CoeditorClient {
 			vscode.workspace.registerTextDocumentContentProvider(SCHEME, contentProvider),
 		);
 
-		this.targetDecoration = vscode.window.createTextEditorDecorationType({
-			gutterIconPath: context.asAbsolutePath("images/pen.svg"),
-			gutterIconSize: "contain",
-			rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
-		});
+		this.targetDecoration = this._createDecoration(context);
 
+		// update decorations on theme change
+		context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration('workbench.colorTheme')) {
+				// get color theme
+				client.targetDecoration.dispose();
+				client.targetDecoration = this._createDecoration(context);
+				const editor = vscode.window.activeTextEditor;
+				client._addDecorationToEditor(editor);
+			}
+		}));
+
+		// add decorations to active editor
 		vscode.window.onDidChangeActiveTextEditor(editor => {
-			if (!editor) {
+			client._addDecorationToEditor(editor);
+		}, client, context.subscriptions);
+
+		// optionally suggestEdits on file save
+		vscode.workspace.onDidSaveTextDocument(doc => {
+			const runOnSave = vscode.workspace.getConfiguration().get('coeditor.runOnSave');
+			const editor = vscode.window.activeTextEditor;
+			client.channel.appendLine(`Document saved: ${doc.uri.fsPath}`);
+			if (!(runOnSave && editor && editor.document.uri === doc.uri)) {
 				return;
 			}
-			if (editor.document.uri === this.lastTargetUri) {
-				client.setTargetLines(editor);
-			}
+			client.suggestEdits(true, true);
 		}, client, context.subscriptions);
 
 		this.channel.appendLine("Coeditor client initialized.");
 	}
 
-	async suggestEditsAgain() {
-		await this.suggestEdits(true);
-	}
-
-	async trySuggestEditsAgain() {
-		await this.suggestEdits(true, true);
-	}
-
-	async suggestEditsForSelection() {
-		await this.suggestEdits(false);
-	}
-
-	getTargetlines(editor: vscode.TextEditor, tryReuseTargets: boolean): number | number[] | ErrorMsg {
-		if (!editor.selections) {
-			return "Current editor has no selection";
-		}
-
-		// try reuse targets if current selection is inside the last target
-		if (tryReuseTargets && this.lastTargetUri === editor.document.uri && this.lastTargetLines) {
-			const line = editor.selection.start.line;
-			if (this.lastTargetLines.includes(line)) {
-				return this.lastTargetLines;
-			}
-		}
-
-		const lineBegin = editor.selection.start.line + 1;
-		const lineEnd = editor.selection.end.line + 1;
-		if (lineBegin !== lineEnd) {
-			return Array.from(
-				{ length: lineEnd - lineBegin + 1 }, (_, i) => i + lineBegin
-			);
-		} else {
-			return lineBegin;
-		}
-	}
 
 	async suggestEdits(tryReuseTargets: boolean, silentFail: boolean = false) {
 		const client = this;
@@ -171,7 +159,7 @@ class CoeditorClient {
 				'location of the cursor to determine which code element to edit.');
 			return;
 		}
-		const targetLines = this.getTargetlines(editor, tryReuseTargets);
+		const targetLines = this._getTargetlines(editor, tryReuseTargets);
 		if (typeof targetLines === "string") {
 			show_error(targetLines);
 			return;
@@ -199,14 +187,16 @@ class CoeditorClient {
 		const filePath = targetUri.fsPath;
 		const relPath = vscode.workspace.asRelativePath(filePath);
 
-		const saved = await targetEditor.document.save();
-		if (!saved) {
-			show_error('Unable to proceed: failed to save the active editor.');
-			return;
+		if (targetEditor.document.isDirty){
+			const saved = await targetEditor.document.save();
+			if (!saved) {
+				show_error('Unable to proceed: failed to save the active editor.');
+				return;
+			}
 		}
 
 		const prompt = `Suggesting edits for '${relPath}' (${targetDesc})...`;
-		const panelUri = this.updateSuggestPanel(prompt);
+		const panelUri = this._updateSuggestPanel(prompt);
 		const panelDoc = await vscode.workspace.openTextDocument(panelUri);
 		// open a new document
 		await vscode.window.showTextDocument(panelDoc, { preserveFocus: false, preview: false, viewColumn: viewColumn });
@@ -249,16 +239,9 @@ class CoeditorClient {
 		this.lastResponse = response;
 		this.lastSuggestions = suggestionSnippets;
 		this.lastTargetLines = response.target_lines;
-		client.setTargetLines(targetEditor);
-		this.updateSuggestPanel(suggestionSnippets.join(""));
+		client._setTargetLines(targetEditor);
+		this._updateSuggestPanel(suggestionSnippets.join(""));
 		// todo: notify the change
-	}
-
-	updateSuggestPanel(content: string) {
-		this.virtualFiles[suggestionFilePath] = content;
-		const suggestionUri = vscode.Uri.from({ scheme: SCHEME, path: suggestionFilePath });
-		this.fileChangeEmitter.fire(suggestionUri);
-		return suggestionUri;
 	}
 
 	async applySuggestion(index: number) {
@@ -288,7 +271,67 @@ class CoeditorClient {
 		this.lastResponse.old_code = suggestion.new_code;
 	}
 
-	setTargetLines(editor: vscode.TextEditor) {
+	_createDecoration(context: vscode.ExtensionContext){
+		const theme = vscode.workspace.getConfiguration().get('workbench.colorTheme');
+		const isLight = (typeof theme === "string") ? theme.toLowerCase().includes('light') : false;
+		const icon = isLight ? "images/pencil-light.svg" : "images/pencil-dark.svg";
+		const rulerColor = isLight ? "#d6d6d6" : "white";
+
+		return vscode.window.createTextEditorDecorationType({
+			gutterIconPath: context.asAbsolutePath(icon),
+			overviewRulerColor: rulerColor,
+			gutterIconSize: "contain",
+			rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+			overviewRulerLane: vscode.OverviewRulerLane.Right,
+		});
+	}
+
+	_addDecorationToEditor(editor: vscode.TextEditor | undefined) {
+		if (!editor) {
+			return;
+		}
+		if (editor.document.uri === this.lastTargetUri) {
+			this._setTargetLines(editor);
+		}
+	}
+
+
+	_getTargetlines(editor: vscode.TextEditor, tryReuseTargets: boolean): number | number[] | ErrorMsg {
+		if (editor.document.languageId !== "python") {
+			return "Coeditor can only be run on Python files";
+		}
+		if (!editor.selections) {
+			return "Current editor has no selection";
+		}
+
+		// try reuse targets if current selection is inside the last target
+		if (tryReuseTargets && this.lastTargetUri === editor.document.uri && this.lastTargetLines) {
+			const line = editor.selection.start.line;
+			if (this.lastTargetLines.includes(line)) {
+				return this.lastTargetLines;
+			}
+		}
+
+		const lineBegin = editor.selection.start.line + 1;
+		const lineEnd = editor.selection.end.line + 1;
+		if (lineBegin !== lineEnd) {
+			return Array.from(
+				{ length: lineEnd - lineBegin + 1 }, (_, i) => i + lineBegin
+			);
+		} else {
+			return lineBegin;
+		}
+	}
+
+	_updateSuggestPanel(content: string) {
+		this.virtualFiles[suggestionFilePath] = content;
+		const suggestionUri = vscode.Uri.from({ scheme: SCHEME, path: suggestionFilePath });
+		this.fileChangeEmitter.fire(suggestionUri);
+		return suggestionUri;
+	}
+
+
+	_setTargetLines(editor: vscode.TextEditor) {
 		if (this.lastTargetLines === undefined) {
 			this.channel.appendLine("Clearing decorations.");
 			editor.setDecorations(this.targetDecoration, []);

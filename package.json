@@ -15,6 +15,7 @@
     "Other"
   ],
   "activationEvents": [
+    "onLanguage:python"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -51,6 +52,11 @@
           "type": "string",
           "default": "http://localhost:5042",
           "description": "The URL of the Coeditor inference service."
+        },
+        "coeditor.runOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to run Coeditor on file save."
         },
         "coeditor.writeLogs": {
           "type": "boolean",
