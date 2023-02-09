@@ -2,6 +2,8 @@
 
 AI-powered Python code change suggestion using the Coeditor transformer model.
 
+*It's like GitHub Copilot but for suggesting where and how to make code changes.*
+
 ![Coeditor Screenshot](images/Coeditor-screenshot.png)
 
 ## Features
