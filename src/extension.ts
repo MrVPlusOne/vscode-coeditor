@@ -1,8 +1,6 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 
-
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
+// The UI front-end for the coeditor extension.
 import * as vscode from 'vscode';
 const axios = require('axios').default;
 

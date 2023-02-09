@@ -2,9 +2,11 @@
 
 
 ## [Unreleased]
+
+## [0.3.3] - 2023-02-09
+- Update readme.
 ### Fixed
-- Preserve editor focus when suggesting edits. (This works better for an interactive 
-setting where the user can make additional edits to prompt the model.)
+- Preserve editor focus when suggesting edits. (This works better for an interactive setting where the user can make additional edits to prompt the model.)
 ### Added
 - Clear the target line region when the suggestion panel becomes not visible.
 
