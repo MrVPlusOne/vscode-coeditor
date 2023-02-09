@@ -6,18 +6,14 @@ AI-powered Python code change suggestion using the Coeditor transformer model.
 
 ## Features
 
-- The extension is designed to work with Git projects and the model will condition its prediction on all the changes you made since the latest commit (plus any staged changes).
-- The extension provides two commands for invoking the model. 
-    - The command `Coeditor: Suggest edits for selection` use the current cursor location or text selection (if multiple lines are selected) to determine which lines to edit. The target line region will be displayed as pencil icons on the left editor margin.
-    [**Watch demo on Youtube**](https://youtu.be/S-lrUhgxfMU)
-    - The command `Coeditor: Suggest edits` will reuse the target line region established by `Suggest edits for selection` (when the cursor is inside the previous line region) or establish a new line region when current cursor is outside or has a text selection. You can run this command repeatedly each time you make additional edits to the target region.
-    [**Watch demo on Youtube**](https://youtu.be/A6GH_BEVFR8)
-- You can also access the `Suggest edits for selection` command from the editor context menu by right-clicking (available in `.py` files only).
-- There is also the `Coeditor: run on save` option that you can turn on to automatically run the `Suggest edits` command everytime you save the editor.
+- The extension is designed to work with Git projects and the model will condition its prediction on all the changes you made since the latest commit.
+- The command `Coeditor: Suggest edits for selection` use the current cursor location or text selection (if multiple lines are selected) to determine which lines to edit. The target line region will be displayed as pencil icons on the left editor margin. You can also access this command from the editor context menu by right-clicking (available in `.py` files only). [**Watch demo on Youtube**](https://youtu.be/S-lrUhgxfMU)
+- The command `Coeditor: Suggest edits` will reuse the target line region established by `Suggest edits for selection` (when the cursor is inside the previous line region) or establish a new line region when current cursor is outside or has a text selection. You can run this command repeatedly each time you make additional edits to the target region. The `Coeditor: run on save` option controls whether to automatically run the this command everytime you save the editor. [**Watch demo on Youtube**](https://youtu.be/A6GH_BEVFR8)
+
 
 ## Installing the Model
 
-(Note: the model codebase is currently private and will be released soon. Stay tuned!)
+**Note: the model codebase is currently private and will be released soon. Stay tuned!**
 - First, install the Coeditor codebase on your machine locally.
 - Then, start the suggestion service by running the command below inside the model's directory:
 ```bash
