@@ -83,7 +83,7 @@ class CoeditorClient {
 					const start = document.positionAt(offset);
 					const startRange = new vscode.Range(start, start);
 					offset += snippet.length;
-					const end = document.positionAt(offset-2);
+					const end = document.positionAt(offset - 2);
 					const endRange = new vscode.Range(end, end);
 					return [
 						new vscode.CodeLens(startRange, {
@@ -161,7 +161,6 @@ class CoeditorClient {
 
 		this.channel.appendLine("Coeditor client initialized.");
 	}
-
 
 	async suggestEdits(tryReuseTargets: boolean, silentFail: boolean = false) {
 		const client = this;
@@ -244,15 +243,15 @@ class CoeditorClient {
 			},
 			"id": 1,
 		};
-		const serverLink = vscode.workspace.getConfiguration().get("coeditor.serverURL");
-		const fullResponse = await axios.post(serverLink, req);
-		if (fullResponse.data.error !== undefined) {
+		const res = await requestServer(req);
+
+		if (res.data.error !== undefined) {
 			show_error(
-				"Coeditor failed with error: " + fullResponse.data.error.message
+				"Coeditor failed with error: " + res.data.error.message
 			);
 			return;
 		}
-		const response: ServerResponse = fullResponse.data.result;
+		const response: ServerResponse = res.data.result;
 		const res_to_show = {
 			server_response: {
 				target_file: response.target_file,
@@ -384,7 +383,6 @@ class CoeditorClient {
 		this.lineStatus.forEach(([line, tag]) => { tag2lines.get(tag)!.push(line); });
 
 		tag2lines.forEach((lines, tag) => {
-			console.log("Setting decoration for tag:", tag, "lines:", lines);
 			const dec = this.statusDecorations.get(tag)!;
 			editor.setDecorations(dec, lines.map((line) => {
 				const start = new vscode.Position(line - 1, 0);
@@ -399,6 +397,19 @@ const allStatusTags = [" ", "R", "A", "D"];
 
 function prettyPrintRange(range: vscode.Range) {
 	return `(${range.start.line + 1}:${range.start.character})-(${range.end.line + 1}:${range.end.character})`;
+}
+
+async function requestServer(request: any, timeout = 10000) {
+	const serverLink = vscode.workspace.getConfiguration().get("coeditor.serverURL");
+	const task = axios.post(serverLink, request);
+	const timer = new Promise((resolve, reject) => {
+		setTimeout(() => reject(new Error("Server response timed out.")), timeout);
+	});
+	try {
+		return await Promise.race([task, timer]);
+	} catch (err: any) {
+		return { data: { error: { message: err.message } } };
+	}
 }
 
 /* eslint-disable @typescript-eslint/naming-convention */
