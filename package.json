@@ -3,7 +3,7 @@
   "displayName": "Coeditor",
   "description": "AI-powered Python code editing assistant.",
   "publisher": "JiayiWei",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "repository": {
     "type": "git",
     "url": "https://github.com/MrVPlusOne/vscode-coeditor"
