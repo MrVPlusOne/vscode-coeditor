@@ -224,53 +224,56 @@ class CoeditorClient {
 			}
 		}
 
-		const prompt = `Suggesting edits for '${relPath}' (${targetDesc})...`;
-		const panelUri = this._updateSuggestPanel(prompt);
-		const panelDoc = await vscode.workspace.openTextDocument(panelUri);
-		// open a new document asynchronously
-		vscode.window.showTextDocument(panelDoc, { preserveFocus: true, preview: true, viewColumn: viewColumn });
-
 		const writeLogs = vscode.workspace.getConfiguration().get("coeditor.writeLogs");
 
-		const req = {
-			"jsonrpc": "2.0",
-			"method": "suggestEdits",
-			"params": {
+		try {
+			const linesP: number[] = await requestServer(
+				"submit_problem", {
 				"project": project.uri.fsPath,
 				"file": relPath,
 				"lines": targetLines,
 				"writeLogs": writeLogs,
-			},
-			"id": 1,
-		};
-		const res = await requestServer(req);
+			}
+			);
 
-		if (res.data.error !== undefined) {
+			this.lineStatus = linesP.map(i => [i, " "]);
+			client._setLineStatus(targetEditor);
+
+			const prompt = `Suggesting edits for '${relPath}' (${targetDesc})...`;
+			const panelUri = this._updateSuggestPanel(prompt);
+			const panelDoc = await vscode.workspace.openTextDocument(panelUri);
+			// open a new document asynchronously
+			vscode.window.showTextDocument(panelDoc, { preserveFocus: true, preview: true, viewColumn: viewColumn });
+
+			const response: ServerResponse = await requestServer(
+				"get_result",
+				{ "project": project.uri.fsPath }
+			);
+			const res_to_show = {
+				server_response: {
+					target_file: response.target_file,
+					edit_start: response.edit_start,
+					edit_end: response.edit_end,
+					target_lines: response.target_lines
+				}
+			};
+			console.log(res_to_show);
+			this.channel.appendLine(JSON.stringify(res_to_show));
+			const suggestionSnippets = response.suggestions.map((suggestion) => {
+				return `================= Score: ${suggestion.score.toPrecision(3)} =================\n${suggestion.change_preview}\n\n`;
+			});
+			this.lastResponse = response;
+			this.lastSuggestions = suggestionSnippets;
+			this.lineStatus = response.suggestions[0].line_status!;
+			client._setLineStatus(targetEditor);
+			this._updateSuggestPanel(suggestionSnippets.join(""));
+
+		} catch (e: any) {
 			show_error(
-				"Coeditor failed with error: " + res.data.error.message
+				"Coeditor failed with error: " + e.message
 			);
 			return;
 		}
-		const response: ServerResponse = res.data.result;
-		const res_to_show = {
-			server_response: {
-				target_file: response.target_file,
-				edit_start: response.edit_start,
-				edit_end: response.edit_end,
-				target_lines: response.target_lines
-			}
-		};
-		console.log(res_to_show);
-		this.channel.appendLine(JSON.stringify(res_to_show));
-		const suggestionSnippets = response.suggestions.map((suggestion) => {
-			return `================= Score: ${suggestion.score.toPrecision(3)} =================\n${suggestion.change_preview}\n\n`;
-		});
-		this.lastResponse = response;
-		this.lastSuggestions = suggestionSnippets;
-		this.lineStatus = response.suggestions[0].line_status!;
-		client._setLineStatus(targetEditor);
-		this._updateSuggestPanel(suggestionSnippets.join(""));
-		// todo: notify the change
 	}
 
 	async applyTopSuggestion() {
@@ -399,17 +402,24 @@ function prettyPrintRange(range: vscode.Range) {
 	return `(${range.start.line + 1}:${range.start.character})-(${range.end.line + 1}:${range.end.character})`;
 }
 
-async function requestServer(request: any, timeout = 10000) {
+async function requestServer(method: string, params: any, timeout = 10000) {
+	const request = {
+		"jsonrpc": "2.0",
+		"method": method,
+		"params": params,
+		"id": 1,
+	};
+
 	const serverLink = vscode.workspace.getConfiguration().get("coeditor.serverURL");
 	const task = axios.post(serverLink, request);
 	const timer = new Promise((resolve, reject) => {
 		setTimeout(() => reject(new Error("Server response timed out.")), timeout);
 	});
-	try {
-		return await Promise.race([task, timer]);
-	} catch (err: any) {
-		return { data: { error: { message: err.message } } };
+	const res = await Promise.race([task, timer]);
+	if (res.data.error !== undefined) {
+		throw new Error(res.data.error.message);
 	}
+	return res.data.result;
 }
 
 /* eslint-disable @typescript-eslint/naming-convention */
