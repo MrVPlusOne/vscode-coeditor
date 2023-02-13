@@ -3,6 +3,14 @@
 
 ## [Unreleased]
 
+## [0.3.5] - 2023-02-12
+### Added
+- Show changed lines with background colors in the suggestion panel.
+- Preview the target line region before getting model results.
+- Improve svg icon aesthetics.
+### Fixed
+- The panel now only shows up when the target line region has been established.
+
 ## [0.3.3] - 2023-02-09
 - Update readme.
 ### Fixed
