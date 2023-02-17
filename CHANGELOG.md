@@ -3,6 +3,10 @@
 
 ## [Unreleased]
 
+## [0.3.6] - 2023-02-16
+### Added
+- Added request timeout setting.
+
 ## [0.3.5] - 2023-02-12
 ### Added
 - Show changed lines with background colors in the suggestion panel.

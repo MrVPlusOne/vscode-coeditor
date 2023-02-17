@@ -225,9 +225,13 @@ class CoeditorClient {
 				}
 			}
 
-			const writeLogs = vscode.workspace.getConfiguration().get("coeditor.writeLogs");
+			const config = vscode.workspace.getConfiguration();
+			const writeLogs = config.get("coeditor.writeLogs");
 			const id = client.counter;
 			client.counter += 1;
+
+			let timeout = config.get<number>("coeditor.requestTimeout", 10);
+			timeout *= 1000;
 
 			const linesP: number[] | string = await requestServer(
 				"submit_problem", {
@@ -236,7 +240,7 @@ class CoeditorClient {
 				"file": relPath,
 				"lines": targetLines,
 				"writeLogs": writeLogs,
-			});
+			}, timeout);
 			if (typeof linesP === "string") {
 				return;
 			}
@@ -255,7 +259,8 @@ class CoeditorClient {
 
 			const response: ServerResponse | string = await requestServer(
 				"get_result",
-				{ "time": Date.now(), "project": projectPath }
+				{ "time": Date.now(), "project": projectPath },
+				timeout,
 			);
 			if (typeof response === "string") {
 				return;
@@ -466,7 +471,7 @@ function prettyPrintRange(range: vscode.Range) {
 	return `(${range.start.line + 1}:${range.start.character})-(${range.end.line + 1}:${range.end.character})`;
 }
 
-async function requestServer(method: string, params: any, timeout = 10000) {
+async function requestServer(method: string, params: any, timeout?: number) {
 	const request = {
 		"jsonrpc": "2.0",
 		"method": method,
