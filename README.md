@@ -20,7 +20,7 @@ Watch how Coeditor works on Youtube:
 
 ## Installing the Model
 
-**Note: the model codebase is currently private and will be released soon. Please contact the author if you want to be an early adopter :)**
+**Note: we are still preparing the model codebase for public testing. Please [sign up here](https://docs.google.com/forms/d/e/1FAIpQLScdDyQrpXVEJeQyov8v5g5IF0lwpi329Tn7SMEPuBJmUv1L-w/viewform?usp=sf_link) if you're interested in being an early adopter :)**
 - First, install the Coeditor codebase on your machine locally.
 - Then, start the suggestion service by running the command below inside the model's directory:
 ```bash
