@@ -3,6 +3,10 @@
 
 ## [Unreleased]
 
+## [0.3.7] - 2023-02-20
+### Changed
+- Swtiched gutter icons from SVG to PNG.
+
 ## [0.3.6] - 2023-02-16
 ### Added
 - Added request timeout setting.

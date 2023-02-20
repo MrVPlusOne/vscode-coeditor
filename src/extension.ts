@@ -343,12 +343,12 @@ class CoeditorClient {
 		const theme = vscode.workspace.getConfiguration().get('workbench.colorTheme');
 		const isLight = (typeof theme === "string") ? theme.toLowerCase().includes('light') : false;
 		const rulerColor = isLight ? "#d6d6d6" : "white";
-		const iconDefault = isLight ? "images/pencil-light.svg" : "images/pencil-dark.svg";
+		const iconDefault = isLight ? "images/pencil-light.png" : "images/pencil-dark.png";
 		const iconMap = {
 			" ": iconDefault,
-			"R": "images/pencil-blue.svg",
-			"A": "images/pencil-green.svg",
-			"D": "images/pencil-red.svg",
+			"R": "images/pencil-blue.png",
+			"A": "images/pencil-green.png",
+			"D": "images/pencil-red.png",
 		};
 
 		const result = new Map<string, vscode.TextEditorDecorationType>();
@@ -367,8 +367,6 @@ class CoeditorClient {
 
 	_createOutputDecorations(context: vscode.ExtensionContext) {
 		const theme = vscode.workspace.getConfiguration().get('workbench.colorTheme');
-		const isLight = (typeof theme === "string") ? theme.toLowerCase().includes('light') : false;
-		const iconDefault = isLight ? "images/pencil-light.svg" : "images/pencil-dark.svg";
 
 		const colorMap = {
 			" ": "rgba(0, 0, 0, 0.0)",
