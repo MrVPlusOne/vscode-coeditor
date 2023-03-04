@@ -281,13 +281,13 @@ class CoeditorClient {
 			});
 			this.lastResponse = response;
 			this.lastSuggestions = suggestionSnippets;
-			this.inputStatus = response.suggestions[0].input_status;
-			this.outputStatus = response.suggestions[0].output_status.map(([i, tag]) => [i + 2, tag]);
-			client._setLineStatus(targetEditor);
-			this._updateSuggestPanel(suggestionSnippets.join(""));
-			vscode.window.showTextDocument(
-				panelDoc, { preserveFocus: true, preview: true, viewColumn: viewColumn }
-			).then((editor) => client._setLineStatus(editor));
+			if (this.inputStatus !== undefined) {
+				// if the suggestion panel was not closed
+				this.inputStatus = response.suggestions[0].input_status;
+				this.outputStatus = response.suggestions[0].output_status.map(([i, tag]) => [i + 2, tag]);
+				client._setLineStatus(targetEditor);
+				this._updateSuggestPanel(suggestionSnippets.join(""));
+			}
 		} catch (e: any) {
 			show_error(
 				"Coeditor failed with error: " + e.message

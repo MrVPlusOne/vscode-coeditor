@@ -2,6 +2,8 @@
 
 
 ## [Unreleased]
+### Changed
+- The suggestion panel won't reopen if it was closed before the model returns a result.
 
 ## [0.3.7] - 2023-02-20
 ### Changed
