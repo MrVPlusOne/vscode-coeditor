@@ -21,18 +21,18 @@ export async function activate(context: vscode.ExtensionContext) {
 			coeditorClient
 		),
 		vscode.commands.registerCommand(
-			'coeditor.suggestEdits',
+			'coeditor.suggestEditsAgain',
 			coeditorClient.suggestEditsAgain,
-			coeditorClient
-		),
-		vscode.commands.registerCommand(
-			'coeditor.trySuggestEdits',
-			coeditorClient.trySuggestEditsAgain,
 			coeditorClient
 		),
 		vscode.commands.registerCommand(
 			'coeditor.applySuggestion',
 			coeditorClient.applySuggestion,
+			coeditorClient
+		),
+		vscode.commands.registerCommand(
+			'coeditor.applySuggestionAndClose',
+			coeditorClient.applySuggestionAndClose,
 			coeditorClient
 		),
 	];
@@ -44,6 +44,7 @@ export function deactivate() { }
 
 const SCHEME = "coeditor";
 const suggestionFilePath = "/CoeditorSuggestions";
+const suggestionUri = vscode.Uri.from({ scheme: SCHEME, path: suggestionFilePath });
 type ErrorMsg = string;
 
 
@@ -60,6 +61,7 @@ class CoeditorClient {
 	lastResponse: ServerResponse | undefined = undefined;
 	lastSuggestions: string[] = [];
 	lastTargetUri: vscode.Uri | undefined = undefined;
+	lastTargetLines: number[] | number | undefined = undefined;
 	inputStatus: [number, string][] | undefined = undefined;
 	outputStatus: [number, string][] | undefined = undefined;
 
@@ -67,12 +69,19 @@ class CoeditorClient {
 		await this.suggestEdits(true);
 	}
 
-	async trySuggestEditsAgain() {
-		await this.suggestEdits(true, true);
-	}
-
 	async suggestEditsForSelection() {
 		await this.suggestEdits(false);
+	}
+
+	async applySuggestionAndClose(index?: number) {
+		await this.applySuggestion(index);
+		vscode.window.visibleTextEditors.forEach(async (editor) => {
+			const uri = editor.document.uri;
+			if (uri.scheme === suggestionUri.scheme && uri.fsPath === suggestionUri.fsPath) {
+				await vscode.window.showTextDocument(editor.document, editor.viewColumn);
+				await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+			}
+		});
 	}
 
 	constructor(context: vscode.ExtensionContext) {
@@ -148,6 +157,7 @@ class CoeditorClient {
 			const suggestPanelVisible = editors.some(e => e.document.uri.scheme === SCHEME && e.document.uri.fsPath === suggestionFilePath);
 			if (!suggestPanelVisible) {
 				client.inputStatus = undefined;
+				client.lastTargetLines = undefined;
 				const targetEditor = editors.find(e => e.document.uri === client.lastTargetUri);
 				if (targetEditor) {
 					client._setLineStatus(targetEditor);
@@ -157,27 +167,27 @@ class CoeditorClient {
 
 		// optionally suggestEdits on file save
 		vscode.workspace.onDidSaveTextDocument(doc => {
-			const runOnSave = vscode.workspace.getConfiguration().get('coeditor.runOnSave');
 			const editor = vscode.window.activeTextEditor;
-			client.channel.appendLine(`Document saved: ${doc.uri.fsPath}`);
-			if (!(runOnSave && editor && editor.document.uri === doc.uri)) {
-				return;
+			if (
+				client.inputStatus
+				&& editor
+				&& editor.document.uri === doc.uri
+				&& editor.document.languageId === "python"
+				&& vscode.workspace.getConfiguration().get('coeditor.rerunOnSave')
+			) {
+				client.suggestEdits(true);
 			}
-			client.suggestEdits(true, true);
 		}, client, context.subscriptions);
 
 		this.channel.appendLine("Coeditor client initialized.");
 	}
 
 
-	async suggestEdits(tryReuseTargets: boolean, silentFail: boolean = false) {
+	async suggestEdits(reuseTargets: boolean) {
 		const client = this;
 		function show_error(msg: string) {
-			if (!silentFail) {
-				vscode.window.showErrorMessage(msg);
-			}
-			const tag = silentFail ? "[silent error]" : "[error]";
-			const toDisplay = tag + " " + msg;
+			vscode.window.showErrorMessage(msg);
+			const toDisplay = "[error] " + msg;
 			client.channel.appendLine(toDisplay);
 			client._updateSuggestPanel(toDisplay);
 		}
@@ -190,7 +200,7 @@ class CoeditorClient {
 			const targetEditor = editor;
 			this.lastTargetUri = targetUri;
 
-			const targetLines = this._getTargetlines(editor, tryReuseTargets);
+			const targetLines = this._getTargetlines(editor, reuseTargets);
 			if (typeof targetLines === "string") {
 				throw new Error(targetLines);
 			}
@@ -200,8 +210,8 @@ class CoeditorClient {
 				this.inputStatus = targetLines.map(i => [i, " "]);
 			}
 			client._setLineStatus(targetEditor);
+			this.lastTargetLines = targetLines;
 
-			const viewColumn = targetEditor.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
 			// check the type of targetLines
 			const targetDesc = (
 				(typeof targetLines === 'number') ?
@@ -226,8 +236,7 @@ class CoeditorClient {
 			}
 
 			const config = vscode.workspace.getConfiguration();
-			const writeLogs = config.get("coeditor.writeLogs");
-			const id = client.counter;
+			const writeLogs = config.get<boolean>("coeditor.writeLogs");
 			client.counter += 1;
 
 			let timeout = config.get<number>("coeditor.requestTimeout", 10);
@@ -249,13 +258,10 @@ class CoeditorClient {
 			client._setLineStatus(targetEditor);
 
 			const prompt = `Suggesting edits for '${relPath}' (${targetDesc})...`;
+			this.outputStatus = undefined;
+			client.channel.appendLine(prompt);
 			const panelUri = this._updateSuggestPanel(prompt);
 			const panelDoc = await vscode.workspace.openTextDocument(panelUri);
-			// open a new document asynchronously
-			this.outputStatus = undefined;
-			vscode.window.showTextDocument(
-				panelDoc, { preserveFocus: true, preview: true, viewColumn: viewColumn }
-			).then((editor) => client._setLineStatus(editor));
 
 			const response: ServerResponse | string = await requestServer(
 				"get_result",
@@ -281,17 +287,19 @@ class CoeditorClient {
 			});
 			this.lastResponse = response;
 			this.lastSuggestions = suggestionSnippets;
-			if (this.inputStatus !== undefined) {
-				// if the suggestion panel was not closed
-				this.inputStatus = response.suggestions[0].input_status;
-				this.outputStatus = response.suggestions[0].output_status.map(([i, tag]) => [i + 2, tag]);
-				client._setLineStatus(targetEditor);
-				this._updateSuggestPanel(suggestionSnippets.join(""));
-			}
+			this.inputStatus = response.suggestions[0].input_status;
+			this.outputStatus = response.suggestions[0].output_status.map(([i, tag]) => [i + 2, tag]);
+			client._setLineStatus(targetEditor);
+			this._updateSuggestPanel(suggestionSnippets.join(""));
+			const viewColumn = targetEditor.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
+			vscode.window.showTextDocument(
+				panelDoc, { preserveFocus: true, preview: true, viewColumn: viewColumn }
+			).then((editor) => client._setLineStatus(editor));
 		} catch (e: any) {
 			show_error(
 				"Coeditor failed with error: " + e.message
 			);
+			this.lastTargetLines = undefined;
 			this.inputStatus = undefined;
 			this.outputStatus = undefined;
 			client._setLineStatus(vscode.window.activeTextEditor);
@@ -299,19 +307,25 @@ class CoeditorClient {
 		}
 	}
 
-	async applyTopSuggestion() {
-		await this.applySuggestion(0);
-	}
 
-	async applySuggestion(index: number) {
+	async applySuggestion(index?: number) {
 		if (this.lastResponse === undefined) {
 			vscode.window.showErrorMessage('No suggestions to apply.');
 			return;
 		}
+		if (index === undefined) {
+			index = 0;
+		}
 		const uri = vscode.Uri.file(this.lastResponse.target_file);
-		const viewColumn = vscode.window.activeTextEditor?.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
-		const doc = await vscode.workspace.openTextDocument(uri);
-		const editor = await vscode.window.showTextDocument(doc, { preserveFocus: true, viewColumn: viewColumn });
+
+		let editor: vscode.TextEditor;
+		if (vscode.window.activeTextEditor?.document.uri.fsPath === uri.fsPath) {
+			editor = vscode.window.activeTextEditor;
+		} else {
+			const viewColumn = vscode.window.activeTextEditor?.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
+			const doc = await vscode.workspace.openTextDocument(uri);
+			editor = await vscode.window.showTextDocument(doc, { preserveFocus: true, viewColumn: viewColumn });
+		}
 
 		const suggestion = this.lastResponse.suggestions[index];
 		const start = new vscode.Position(this.lastResponse.edit_start[0] - 1, this.lastResponse.edit_start[1]);
@@ -389,21 +403,22 @@ class CoeditorClient {
 	}
 
 
-	_getTargetlines(editor: vscode.TextEditor, tryReuseTargets: boolean): number | number[] | ErrorMsg {
+	_getTargetlines(editor: vscode.TextEditor, reuseTargets: boolean): number | number[] | ErrorMsg {
 		if (editor.document.languageId !== "python") {
 			return "Coeditor can only be run on Python files";
 		}
-		if (!editor.selections) {
-			return "Current editor has no selection";
-		}
 
 		// try reuse targets if current selection is inside the last target
-		if (tryReuseTargets && this.lastTargetUri === editor.document.uri && this.inputStatus) {
-			const line = editor.selection.start.line;
-			const lastLines = this.inputStatus.map(x => x[0]);
-			if (lastLines.includes(line)) {
-				return lastLines;
+		if (reuseTargets) {
+			if (this.lastTargetUri === editor.document.uri && this.lastTargetLines) {
+				return this.lastTargetLines;
+			} else {
+				return "No previous targets to reuse";
 			}
+		}
+
+		if (!editor.selections) {
+			return "Current editor has no selection";
 		}
 
 		const lineBegin = editor.selection.start.line + 1;
@@ -419,7 +434,6 @@ class CoeditorClient {
 
 	_updateSuggestPanel(content: string) {
 		this.virtualFiles[suggestionFilePath] = content;
-		const suggestionUri = vscode.Uri.from({ scheme: SCHEME, path: suggestionFilePath });
 		this.fileChangeEmitter.fire(suggestionUri);
 		return suggestionUri;
 	}

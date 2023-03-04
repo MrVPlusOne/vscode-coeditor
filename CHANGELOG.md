@@ -2,8 +2,14 @@
 
 
 ## [Unreleased]
+
+## [0.4.0] - 2023-03-03
+### Added
+- Add the `Apply suggested edits and close` command.
 ### Changed
-- The suggestion panel won't reopen if it was closed before the model returns a result.
+- The suggestion panel now only opens when the model suggestions are ready.
+- `Suggest edits again` now always reuse the previous target line region.
+- Only run `Suggest edits again` on file save when the suggestion panel is open.
 
 ## [0.3.7] - 2023-02-20
 ### Changed

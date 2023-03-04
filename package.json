@@ -3,7 +3,7 @@
   "displayName": "Coeditor",
   "description": "AI-powered Python code editing assistant.",
   "publisher": "JiayiWei",
-  "version": "0.3.7",
+  "version": "0.4.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/MrVPlusOne/vscode-coeditor"
@@ -26,13 +26,13 @@
         "category": "Coeditor"
       },
       {
-        "command": "coeditor.trySuggestEdits",
-        "title": "Try Suggest edits",
+        "command": "coeditor.suggestEditsAgain",
+        "title": "Suggest edits again",
         "category": "Coeditor"
       },
       {
-        "command": "coeditor.suggestEdits",
-        "title": "Suggest edits",
+        "command": "coeditor.applySuggestionAndClose",
+        "title": "Apply suggested edits and close",
         "category": "Coeditor"
       }
     ],
@@ -53,10 +53,10 @@
           "default": "http://localhost:5042",
           "description": "The URL of the Coeditor inference service."
         },
-        "coeditor.runOnSave": {
+        "coeditor.rerunOnSave": {
           "type": "boolean",
-          "default": false,
-          "description": "Whether to run Coeditor on file save."
+          "default": true,
+          "description": "Whether to rerun Coeditor on file save when suggestion panel is open."
         },
         "coeditor.writeLogs": {
           "type": "boolean",
