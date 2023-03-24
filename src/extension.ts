@@ -7,7 +7,6 @@ const axios = require('axios').default;
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export async function activate(context: vscode.ExtensionContext) {
-	// const axios = await require('axios').default;
 	const coeditorClient = new CoeditorClient(context);
 
 	vscode.workspace.workspaceFolders?.forEach(folder => {
@@ -23,6 +22,11 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand(
 			'coeditor.suggestEditsAgain',
 			coeditorClient.suggestEditsAgain,
+			coeditorClient
+		),
+		vscode.commands.registerCommand(
+			"coeditor.viewSuggestions",
+			coeditorClient.viewSuggestions,
 			coeditorClient
 		),
 		vscode.commands.registerCommand(
@@ -49,9 +53,9 @@ type ErrorMsg = string;
 
 
 class CoeditorClient {
-	codeLensProvider: vscode.CodeLensProvider;
 	virtualFiles: { [name: string]: string; } = {};
 	fileChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
+	codeLensEmitter: vscode.EventEmitter<void>;
 	channel: vscode.OutputChannel;
 
 	counter: number = 0;
@@ -90,36 +94,67 @@ class CoeditorClient {
 		}
 		this.channel = vscode.window.createOutputChannel("Coeditor");
 		const client = this;
+		const codeLensEmitter = new vscode.EventEmitter<void>();
 		const codeLensProvider: vscode.CodeLensProvider = {
+			onDidChangeCodeLenses: codeLensEmitter.event,
+
 			provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
-				if (document.uri.scheme !== SCHEME || document.uri.path !== suggestionFilePath) {
+				if (document.uri === client.lastTargetUri && client.inputStatus) {
+					if (client.lastResponse === undefined) {
+						return [];
+					}
+					// add code lenses for changed lines
+					const suggestion = client.lastResponse.suggestions[0];
+					let lastLine = -100;
+					return suggestion.input_status.flatMap((lineTag) => {
+						const [line, tag] = lineTag;
+						if(tag === " "){
+							return [];
+						}
+						if (line === lastLine + 1) {
+							// skip lens for consecutive lines
+							lastLine = line;
+							return [];
+						}
+						const start = new vscode.Position(line-1, 0);
+						const startRange = new vscode.Range(start, start);
+						lastLine = line;
+						return [
+							new vscode.CodeLens(startRange, {
+								title: 'View changes',
+								command: 'coeditor.viewSuggestions'
+							})
+						];
+					});
+				} else if (document.uri.scheme === SCHEME && document.uri.fsPath === suggestionFilePath) {
+					// add a code lens for each suggestion
+					let offset = 0;
+					const actions = client.lastSuggestions.flatMap((snippet, i) => {
+						const start = document.positionAt(offset);
+						const startRange = new vscode.Range(start, start);
+						offset += snippet.length;
+						const end = document.positionAt(offset - 2);
+						const endRange = new vscode.Range(end, end);
+						return [
+							new vscode.CodeLens(startRange, {
+								title: 'Apply suggestion',
+								command: 'coeditor.applySuggestion',
+								arguments: [i]
+							}),
+							new vscode.CodeLens(endRange, {
+								title: 'Apply above suggestion',
+								command: 'coeditor.applySuggestion',
+								arguments: [i]
+							})
+						];
+					});
+					return actions;
+				} else {
 					return [];
 				}
-				let offset = 0;
-				const actions = client.lastSuggestions.flatMap((snippet, i) => {
-					const start = document.positionAt(offset);
-					const startRange = new vscode.Range(start, start);
-					offset += snippet.length;
-					const end = document.positionAt(offset - 2);
-					const endRange = new vscode.Range(end, end);
-					return [
-						new vscode.CodeLens(startRange, {
-							title: 'Apply suggestion',
-							command: 'coeditor.applySuggestion',
-							arguments: [i]
-						}),
-						new vscode.CodeLens(endRange, {
-							title: 'Apply above suggestion',
-							command: 'coeditor.applySuggestion',
-							arguments: [i]
-						})
-					];
-				});
-
-				return actions;
 			}
 		};
-		this.codeLensProvider = codeLensProvider;
+		this.codeLensEmitter = codeLensEmitter;
 
 		const contentProvider = new (class implements vscode.TextDocumentContentProvider {
 			onDidChange = client.fileChangeEmitter.event;
@@ -154,10 +189,10 @@ class CoeditorClient {
 		// ideally we want to do this when the panel is closed, but there is no reliable 
 		// event for that at the moment
 		vscode.window.onDidChangeVisibleTextEditors(editors => {
-			const suggestPanelVisible = editors.some(e => e.document.uri.scheme === SCHEME && e.document.uri.fsPath === suggestionFilePath);
-			if (!suggestPanelVisible) {
+			if (!client._suggestPanelVisible(editors)) {
 				client.inputStatus = undefined;
 				client.lastTargetLines = undefined;
+				client.codeLensEmitter.fire();
 				const targetEditor = editors.find(e => e.document.uri === client.lastTargetUri);
 				if (targetEditor) {
 					client._setLineStatus(targetEditor);
@@ -169,27 +204,43 @@ class CoeditorClient {
 		vscode.workspace.onDidSaveTextDocument(doc => {
 			const editor = vscode.window.activeTextEditor;
 			if (
-				client.inputStatus
+				client._suggestPanelVisible()
 				&& editor
 				&& editor.document.uri === doc.uri
 				&& editor.document.languageId === "python"
 				&& vscode.workspace.getConfiguration().get('coeditor.rerunOnSave')
 			) {
-				client.suggestEdits(true);
+				client.suggestEdits(true, false);
+			} else if (
+				editor 
+				&& editor.document.uri === doc.uri
+				&& editor.document.languageId === "python"
+				&& vscode.workspace.getConfiguration().get('coeditor.backgroundRunOnSave')
+			) {
+				client.suggestEdits(true, true);
 			}
 		}, client, context.subscriptions);
 
 		this.channel.appendLine("Coeditor client initialized.");
 	}
 
+	_suggestPanelVisible(editors?: readonly vscode.TextEditor[]) {
+		if (editors === undefined) {
+			editors = vscode.window.visibleTextEditors;
+		}
+		return editors.some(e => e.document.uri.scheme === SCHEME && e.document.uri.fsPath === suggestionFilePath);
+	}
 
-	async suggestEdits(reuseTargets: boolean) {
+
+	async suggestEdits(reuseTargets: boolean, backgroundRun: boolean = false) {
 		const client = this;
 		function show_error(msg: string) {
-			vscode.window.showErrorMessage(msg);
 			const toDisplay = "[error] " + msg;
 			client.channel.appendLine(toDisplay);
-			client._updateSuggestPanel(toDisplay);
+			if (!backgroundRun) {
+				vscode.window.showErrorMessage(msg);
+				client._updateSuggestPanel(toDisplay);
+			}
 		}
 
 		try {
@@ -205,9 +256,9 @@ class CoeditorClient {
 				throw new Error(targetLines);
 			}
 			if (typeof targetLines === "number") {
-				this.inputStatus = [[targetLines, " "]];
+				this.inputStatus = [[targetLines, "?"]];
 			} else {
-				this.inputStatus = targetLines.map(i => [i, " "]);
+				this.inputStatus = targetLines.map(i => [i, "?"]);
 			}
 			client._setLineStatus(targetEditor);
 			this.lastTargetLines = targetLines;
@@ -254,23 +305,20 @@ class CoeditorClient {
 				return;
 			}
 
-			this.inputStatus = linesP.map(i => [i, " "]);
-			client._setLineStatus(targetEditor);
+			this.inputStatus = linesP.map(i => [i, "?"]);
+			this._setLineStatus(targetEditor);
 
 			const prompt = `Suggesting edits for '${relPath}' (${targetDesc})...`;
 			this.outputStatus = undefined;
-			client.channel.appendLine(prompt);
-			const panelUri = this._updateSuggestPanel(prompt);
-			const panelDoc = await vscode.workspace.openTextDocument(panelUri);
+			this.channel.appendLine(prompt);
+			this._updateSuggestPanel(prompt);
 
-			const response: ServerResponse | string = await requestServer(
+			const response: ServerResponse = await requestServer(
 				"get_result",
 				{ "time": Date.now(), "project": projectPath },
 				timeout,
 			);
-			if (typeof response === "string") {
-				return;
-			}
+
 			const res_to_show = {
 				server_response: {
 					target_file: response.target_file,
@@ -291,10 +339,10 @@ class CoeditorClient {
 			this.outputStatus = response.suggestions[0].output_status.map(([i, tag]) => [i + 2, tag]);
 			client._setLineStatus(targetEditor);
 			this._updateSuggestPanel(suggestionSnippets.join(""));
-			const viewColumn = targetEditor.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
-			vscode.window.showTextDocument(
-				panelDoc, { preserveFocus: true, preview: true, viewColumn: viewColumn }
-			).then((editor) => client._setLineStatus(editor));
+			if (!backgroundRun) {
+				this.viewSuggestions();
+			}
+			client.codeLensEmitter.fire();
 		} catch (e: any) {
 			show_error(
 				"Coeditor failed with error: " + e.message
@@ -305,6 +353,18 @@ class CoeditorClient {
 			client._setLineStatus(vscode.window.activeTextEditor);
 			return;
 		}
+	}
+
+	async viewSuggestions() {
+		const editor = vscode.window.activeTextEditor;
+		let viewColumn = vscode.ViewColumn.One;
+		if (editor) {
+			viewColumn = editor.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
+		}
+		const panelDoc = await vscode.workspace.openTextDocument(suggestionUri);
+		vscode.window.showTextDocument(
+			panelDoc, { preserveFocus: true, preview: true, viewColumn: viewColumn }
+		).then((editor) => this._setLineStatus(editor));
 	}
 
 
@@ -357,9 +417,9 @@ class CoeditorClient {
 		const theme = vscode.workspace.getConfiguration().get('workbench.colorTheme');
 		const isLight = (typeof theme === "string") ? theme.toLowerCase().includes('light') : false;
 		const rulerColor = isLight ? "#d6d6d6" : "white";
-		const iconDefault = isLight ? "images/pencil-light.png" : "images/pencil-dark.png";
 		const iconMap = {
-			" ": iconDefault,
+			"?": isLight ? "images/question-dark.png" : "images/question-white.png",
+			" ": isLight ? "images/pencil-dark.png" : "images/pencil-white.png",
 			"R": "images/pencil-blue.png",
 			"A": "images/pencil-green.png",
 			"D": "images/pencil-red.png",
@@ -409,11 +469,14 @@ class CoeditorClient {
 		}
 
 		// try reuse targets if current selection is inside the last target
-		if (reuseTargets) {
-			if (this.lastTargetUri === editor.document.uri && this.lastTargetLines) {
+		if (reuseTargets && this.lastTargetUri === editor.document.uri && this.lastTargetLines && this.inputStatus) {
+			if (!editor.selections) {
 				return this.lastTargetLines;
-			} else {
-				return "No previous targets to reuse";
+			}
+			const line = editor.selection.start.line;
+			const lastLines = this.inputStatus.map(x => x[0]);
+			if (lastLines.includes(line)) {
+				return this.lastTargetLines;
 			}
 		}
 

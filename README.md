@@ -15,13 +15,14 @@ Watch how Coeditor works on Youtube:
 
 - The extension is designed to work with Git projects, and the model will condition its prediction on all the changes you made since the latest commit.
 - The command `Coeditor: Suggest edits for selection` uses the current cursor location or text selection (if multiple lines are selected) to determine which lines to edit. The target line region will be displayed as pencil icons in the editor margin. You can also access this command from the editor context menu by right-clicking (available in `.py` files only).
-- The command `Suggest edits again` runs the model again by reusing the cursor location from the last time. When the suggestion panel is kept open, this command will automatically be called on file save.
+- The command `Suggest edits again` runs the model again by reusing the cursor location from the last time. When the suggestion panel is kept open, this command will automatically be called on file save (when `rerunOnSave` is true).
+- When `backgroundOnSave` is true (the default), the model will suggest edits on the background when the user saves a file and offer to view the results by displaying code lenses in the input.
 - The command `Apply suggested edits and close` will apply the suggested edits and close the suggestion panel. 
 
 
 ## Installing the Model
 
-**Note: we are still preparing the model codebase for public testing. Please [sign up here](https://docs.google.com/forms/d/e/1FAIpQLScdDyQrpXVEJeQyov8v5g5IF0lwpi329Tn7SMEPuBJmUv1L-w/viewform?usp=sf_link) if you're interested in being an early adopter :)**
+**Note: we are still preparing the model codebase for public release. Stay tuned!**
 - First, install the Coeditor codebase on your machine locally.
 - Then, start the suggestion service by running the command below inside the model's directory:
 ```bash

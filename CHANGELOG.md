@@ -3,6 +3,15 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2023-03-24
+### Added
+- Add the setting `backgroundOnSave` (default to true). When enabled, it allows the 
+model to suggest edits on the background when the user saves a file and offer to view 
+the results using code lenses in the input.
+### Changed
+- New gutter icon (a question mark) to mark target lines when the results are not available.
+- Will not reuse the previous target line region when the cursor is outside of previous region and will instead create a new larget region.
+
 ## [0.4.0] - 2023-03-03
 ### Added
 - Add the `Apply suggested edits and close` command.
