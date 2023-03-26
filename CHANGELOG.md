@@ -3,11 +3,13 @@
 
 ## [Unreleased]
 
+## [0.4.3] - 2023-03-26
+### Fixed
+- Save file when applying changes (for more interactive UX). Use `apply and save` in suggestion panel lenses.
 ## [0.4.2] - 2023-03-26
 ### Changed
 - Update gutter icons to be colored circles.
 - Preview changes on hover.
-- Save file when applying changes (for more interactive UX). Use `apply and save` in suggestion panel lenses.
 - Add a threshold option to filter out low confidence suggestions when running in the background.
 ### Added
 - Support applying subchanges using code lenses.
