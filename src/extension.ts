@@ -530,7 +530,7 @@ class CoeditorClient {
 		tag2lines.forEach((lines, tag) => {
 			const dec = decorations.get(tag);
 			if (!dec) {
-				console.log("Unknown tag: " + tag);
+				this.channel.appendLine("Unknown tag: " + tag);
 				return;
 			}
 			editor.setDecorations(dec, lines.map((line) => {
@@ -556,10 +556,15 @@ async function requestServer(method: string, params: any, timeout?: number) {
 
 	const serverLink = vscode.workspace.getConfiguration().get("coeditor.serverURL");
 	const task = axios.post(serverLink, request);
-	const timer = new Promise((resolve, reject) => {
-		setTimeout(() => reject(new Error("Server response timed out.")), timeout);
-	});
-	const res = await Promise.race([task, timer]);
+	let res;
+	if (timeout === undefined) {
+		res = await task;
+	} else {
+		const timer = new Promise((resolve, reject) => {
+			setTimeout(() => reject(new Error(`Server timed out for request: ${JSON.stringify(request)}`)), timeout);
+		});
+		res = await Promise.race([task, timer]);
+	}
 	if (res.data.error !== undefined) {
 		throw new Error(res.data.error.message);
 	}
