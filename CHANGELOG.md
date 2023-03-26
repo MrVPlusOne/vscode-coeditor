@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2023-03-26
+### Added
+- Support applying subchanges using code lenses.
+### Changed
+- Automatically rerun the model after applying a change or subchange.
+
 ## [0.4.1] - 2023-03-24
 ### Added
 - Add the setting `backgroundOnSave` (default to true). When enabled, it allows the 

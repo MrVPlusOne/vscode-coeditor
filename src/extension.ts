@@ -112,24 +112,18 @@ class CoeditorClient {
                     }
                     // add code lenses for changed lines
                     const suggestion = client.lastResponse.suggestions[0];
-                    let lastLine = -100;
-                    return suggestion.input_status.flatMap((lineTag) => {
-                        const [line, tag] = lineTag;
-                        if (tag === ' ') {
-                            return [];
-                        }
-                        if (line === lastLine + 1) {
-                            // skip lens for consecutive lines
-                            lastLine = line;
-                            return [];
-                        }
-                        const start = new vscode.Position(line - 1, 0);
+                    return suggestion.changes.flatMap((change, i) => {
+                        const start = new vscode.Position(change.start - 1, 0);
                         const startRange = new vscode.Range(start, start);
-                        lastLine = line;
                         return [
                             new vscode.CodeLens(startRange, {
                                 title: 'View changes',
                                 command: 'coeditor.viewSuggestions',
+                            }),
+                            new vscode.CodeLens(startRange, {
+                                title: 'Apply this change',
+                                command: 'coeditor.applySuggestion',
+                                arguments: [0, i],
                             }),
                         ];
                     });
@@ -263,7 +257,11 @@ class CoeditorClient {
         );
     }
 
-    async suggestEdits(reuseTargets: boolean, backgroundRun: boolean = false) {
+    async suggestEdits(
+        reuseTargets: boolean,
+        backgroundRun: boolean = false,
+        editor?: vscode.TextEditor
+    ) {
         const client = this;
         function show_error(msg: string) {
             const toDisplay = '[error] ' + msg;
@@ -275,7 +273,9 @@ class CoeditorClient {
         }
 
         try {
-            const editor = vscode.window.activeTextEditor;
+            if (editor === undefined) {
+                editor = vscode.window.activeTextEditor;
+            }
             if (!editor) {
                 throw new Error('No active editor');
             }
@@ -369,6 +369,7 @@ class CoeditorClient {
                     outputStatus: response.suggestions
                         ? response.suggestions[0].output_status
                         : undefined,
+                    changes: response.suggestions[0].changes,
                 },
             };
             console.log(res_to_show);
@@ -388,7 +389,7 @@ class CoeditorClient {
             client._setLineStatus(targetEditor);
             this._updateSuggestPanel(suggestionSnippets.join(''));
             if (!backgroundRun) {
-                this.viewSuggestions();
+                this.viewSuggestions(editor);
             }
             client.codeLensEmitter.fire();
         } catch (e: any) {
@@ -401,12 +402,18 @@ class CoeditorClient {
         }
     }
 
-    async viewSuggestions() {
-        const editor = vscode.window.activeTextEditor;
+    /**
+     * @param avoidEditor Which editor whose ViewColumn the suggestion panel should
+     * avoid using. Default to the active editor.
+     */
+    async viewSuggestions(avoidEditor?: vscode.TextEditor) {
+        if (avoidEditor === undefined) {
+            avoidEditor = vscode.window.activeTextEditor;
+        }
         let viewColumn = vscode.ViewColumn.One;
-        if (editor) {
+        if (avoidEditor) {
             viewColumn =
-                editor.viewColumn === vscode.ViewColumn.One
+                avoidEditor.viewColumn === vscode.ViewColumn.One
                     ? vscode.ViewColumn.Two
                     : vscode.ViewColumn.One;
         }
@@ -420,13 +427,17 @@ class CoeditorClient {
             .then((editor) => this._setLineStatus(editor));
     }
 
-    async applySuggestion(index?: number) {
+    /**
+     * Apply the model suggestions to the target file, open an editor if necessary.
+     * Then rerun the model again on the new inputs.
+     * @param suggest_i which suggestion to apply, default to 0
+     * @param change_i within the suggestion, which subchange to apply. If undefined,
+     * all suggested changes are applied.
+     */
+    async applySuggestion(suggest_i: number = 0, change_i?: number) {
         if (this.lastResponse === undefined) {
             vscode.window.showErrorMessage('No suggestions to apply.');
             return;
-        }
-        if (index === undefined) {
-            index = 0;
         }
         const uri = vscode.Uri.file(this.lastResponse.target_file);
 
@@ -445,41 +456,42 @@ class CoeditorClient {
             });
         }
 
-        const suggestion = this.lastResponse.suggestions[index];
-        const start = new vscode.Position(
-            this.lastResponse.edit_start[0] - 1,
-            this.lastResponse.edit_start[1]
-        );
-        const end = new vscode.Position(
-            this.lastResponse.edit_end[0] - 1,
-            this.lastResponse.edit_end[1]
-        );
-        const range = new vscode.Range(start, end);
-        const current = editor.document.getText(range);
-        if (current !== this.lastResponse.old_code) {
-            vscode.window.showWarningMessage(
-                `The code to be replaced at range ${prettyPrintRange(
-                    range
-                )} has changed. The applied edit may no longer be valid.`
-            );
-            this.channel.appendLine(
-                `The code to be replaced at range ${prettyPrintRange(
-                    range
-                )} has changed.\nCurrent code: ${current}<END>, expected code: ${
-                    this.lastResponse.old_code
-                }<END>`
-            );
+        const suggestion = this.lastResponse.suggestions[suggest_i];
+        let changes: LineChange[];
+        if (change_i === undefined) {
+            changes = suggestion.changes;
+        } else {
+            changes = [suggestion.changes[change_i]];
         }
-        const newEnd = [
-            start.line + suggestion.new_code.split('\n').length,
-            suggestion.new_code.split('\n').slice(-1)[0].length,
-        ];
-        await editor.edit((editBuilder) => {
-            editBuilder.replace(range, suggestion.new_code);
-        });
-        this.lastResponse.edit_end = newEnd;
-        this.lastResponse.old_code = suggestion.new_code;
+        await this._applyChanges(editor, changes);
         this._setLineStatus(editor);
+        await this.suggestEdits(true, true, editor);
+    }
+
+    async _applyChanges(editor: vscode.TextEditor, changes: LineChange[]) {
+        await editor.edit((editBuilder) => {
+            changes.forEach((change) => {
+                const start = new vscode.Position(change.start - 1, 0);
+                const end = new vscode.Position(change.until - 1, 0);
+                const range = new vscode.Range(start, end);
+                const current = editor.document.getText(range);
+                if (current !== change.old_str) {
+                    vscode.window.showWarningMessage(
+                        `The code to be replaced at range ${prettyPrintRange(
+                            range
+                        )} has changed. The applied edit may no longer be valid.`
+                    );
+                    this.channel.appendLine(
+                        `The code to be replaced at range ${prettyPrintRange(
+                            range
+                        )} has changed.\nCurrent code: ${current}<END>, expected code: ${
+                            change.old_str
+                        }<END>`
+                    );
+                }
+                editBuilder.replace(range, change.new_str);
+            });
+        });
     }
 
     _recreateDecorations(context: vscode.ExtensionContext) {
@@ -677,12 +689,19 @@ async function requestServer(method: string, params: any, timeout?: number) {
 
 /* eslint-disable @typescript-eslint/naming-convention */
 
+interface LineChange {
+    start: number;
+    until: number;
+    old_str: string;
+    new_str: string;
+}
+
 interface EditSuggestion {
     score: number;
     change_preview: string;
-    new_code: string;
     input_status: Array<[number, string]>;
     output_status: Array<[number, string]>;
+    changes: LineChange[];
 }
 
 interface ServerResponse {
