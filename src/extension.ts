@@ -114,13 +114,14 @@ class CoeditorClient {
                     const suggestion = client.lastResponse.suggestions[0];
                     return suggestion.changes.flatMap((change, i) => {
                         const start = new vscode.Position(change.start - 1, 0);
-                        const startRange = new vscode.Range(start, start);
+                        const until = new vscode.Position(change.until - 1, 0);
+                        const lensRange = new vscode.Range(start, until);
                         return [
-                            new vscode.CodeLens(startRange, {
+                            new vscode.CodeLens(lensRange, {
                                 title: 'View changes',
                                 command: 'coeditor.viewSuggestions',
                             }),
-                            new vscode.CodeLens(startRange, {
+                            new vscode.CodeLens(lensRange, {
                                 title: 'Apply this change',
                                 command: 'coeditor.applySuggestion',
                                 arguments: [0, i],
@@ -160,6 +161,38 @@ class CoeditorClient {
         };
         this.codeLensEmitter = codeLensEmitter;
 
+        function wrapCode(code: string, codeType: string = '') {
+            return '```' + codeType + '\n' + code + '```';
+        }
+
+        const hoverProvider: vscode.HoverProvider = {
+            provideHover(
+                document: vscode.TextDocument,
+                position: vscode.Position,
+                token: vscode.CancellationToken
+            ) {
+                if (document.uri === client.lastTargetUri && client.inputStatus) {
+                    if (client.lastResponse === undefined) {
+                        return undefined;
+                    }
+                    // add code lenses for changed lines
+                    const suggestion = client.lastResponse.suggestions[0];
+                    for (const change of suggestion.changes) {
+                        if (
+                            change.start - 1 <= position.line &&
+                            position.line < Math.max(change.until, change.start + 1) - 1
+                        ) {
+                            const preview = `Coeditor suggestion:\n${wrapCode(
+                                change.old_str
+                            )}\n----\n\n${wrapCode(change.new_str)}`;
+                            return new vscode.Hover(new vscode.MarkdownString(preview));
+                        }
+                    }
+                    return undefined;
+                }
+            },
+        };
+
         const contentProvider = new (class implements vscode.TextDocumentContentProvider {
             onDidChange = client.fileChangeEmitter.event;
             provideTextDocumentContent(uri: vscode.Uri): string {
@@ -168,8 +201,9 @@ class CoeditorClient {
         })();
 
         context.subscriptions.push(
+            vscode.workspace.registerTextDocumentContentProvider(SCHEME, contentProvider),
             vscode.languages.registerCodeLensProvider('*', codeLensProvider),
-            vscode.workspace.registerTextDocumentContentProvider(SCHEME, contentProvider)
+            vscode.languages.registerHoverProvider('*', hoverProvider)
         );
 
         this._recreateDecorations(context);
@@ -180,8 +214,7 @@ class CoeditorClient {
                 if (event.affectsConfiguration('workbench.colorTheme')) {
                     // get color theme
                     this._recreateDecorations(context);
-                    const editor = vscode.window.activeTextEditor;
-                    client._setLineStatus(editor);
+                    client._setDecorators();
                 }
             })
         );
@@ -189,7 +222,9 @@ class CoeditorClient {
         // add decorations to active editor
         vscode.window.onDidChangeActiveTextEditor(
             (editor) => {
-                client._setLineStatus(editor);
+                if (editor) {
+                    client._setEditorDecorators(editor);
+                }
             },
             client,
             context.subscriptions
@@ -204,12 +239,7 @@ class CoeditorClient {
                     client.inputStatus = undefined;
                     client.lastTargetLines = undefined;
                     client.codeLensEmitter.fire();
-                    const targetEditor = editors.find(
-                        (e) => e.document.uri === client.lastTargetUri
-                    );
-                    if (targetEditor) {
-                        client._setLineStatus(targetEditor);
-                    }
+                    client._setDecorators();
                 }
             },
             client,
@@ -293,7 +323,7 @@ class CoeditorClient {
             } else {
                 this.inputStatus = targetLines.map((i) => [i, '?']);
             }
-            client._setLineStatus(targetEditor);
+            client._setDecorators();
             this.lastTargetLines = targetLines;
 
             // check the type of targetLines
@@ -347,12 +377,13 @@ class CoeditorClient {
             }
 
             this.inputStatus = linesP.map((i) => [i, '?']);
-            this._setLineStatus(targetEditor);
+            this.outputStatus = undefined;
 
             const prompt = `Suggesting edits for '${relPath}' (${targetDesc})...`;
             this.outputStatus = undefined;
             this.channel.appendLine(prompt);
             this._updateSuggestPanel(prompt);
+            this._setDecorators();
 
             const response: ServerResponse = await requestServer(
                 'get_result',
@@ -386,18 +417,19 @@ class CoeditorClient {
                 i + 2,
                 tag,
             ]);
-            client._setLineStatus(targetEditor);
             this._updateSuggestPanel(suggestionSnippets.join(''));
+            client._setDecorators();
             if (!backgroundRun) {
                 this.viewSuggestions(editor);
             }
             client.codeLensEmitter.fire();
+            this._setDecorators();
         } catch (e: any) {
             show_error('Coeditor failed with error: ' + e.message);
             this.lastTargetLines = undefined;
             this.inputStatus = undefined;
             this.outputStatus = undefined;
-            client._setLineStatus(vscode.window.activeTextEditor);
+            client._setDecorators();
             return;
         }
     }
@@ -424,7 +456,7 @@ class CoeditorClient {
                 preview: true,
                 viewColumn: viewColumn,
             })
-            .then((editor) => this._setLineStatus(editor));
+            .then((editor) => this._setEditorDecorators(editor));
     }
 
     /**
@@ -464,7 +496,7 @@ class CoeditorClient {
             changes = [suggestion.changes[change_i]];
         }
         await this._applyChanges(editor, changes);
-        this._setLineStatus(editor);
+        this._setDecorators();
         await this.suggestEdits(true, true, editor);
     }
 
@@ -605,10 +637,13 @@ class CoeditorClient {
         return suggestionUri;
     }
 
-    _setLineStatus(editor: vscode.TextEditor | undefined) {
-        if (!editor) {
-            return;
+    _setDecorators() {
+        for (const editor of vscode.window.visibleTextEditors) {
+            this._setEditorDecorators(editor);
         }
+    }
+
+    _setEditorDecorators(editor: vscode.TextEditor) {
         const uri = editor.document.uri;
         const isOutput = uri.scheme === SCHEME && uri.path === suggestionFilePath;
         const isInput = editor.document.uri === this.lastTargetUri;
