@@ -65,7 +65,7 @@ class CoeditorClient {
     inputDecorations: Map<string, vscode.TextEditorDecorationType> = new Map();
     outputDecorations: Map<string, vscode.TextEditorDecorationType> = new Map();
     lastResponse: ServerResponse | undefined = undefined;
-    lastSuggestions: string[] = [];
+    lastSuggestionSnippet: string = '';
     lastTargetUri: vscode.Uri | undefined = undefined;
     lastTargetLines: number[] | number | undefined = undefined;
     inputStatus: [number, string][] | undefined = undefined;
@@ -134,26 +134,23 @@ class CoeditorClient {
                 ) {
                     // add a code lens for each suggestion
                     let offset = 0;
-                    const actions = client.lastSuggestions.flatMap((snippet, i) => {
-                        const start = document.positionAt(offset);
-                        const startRange = new vscode.Range(start, start);
-                        offset += snippet.length;
-                        const end = document.positionAt(offset - 2);
-                        const endRange = new vscode.Range(end, end);
-                        return [
-                            new vscode.CodeLens(startRange, {
-                                title: 'Apply suggestion',
-                                command: 'coeditor.applySuggestion',
-                                arguments: [i],
-                            }),
-                            new vscode.CodeLens(endRange, {
-                                title: 'Apply above suggestion',
-                                command: 'coeditor.applySuggestion',
-                                arguments: [i],
-                            }),
-                        ];
-                    });
-                    return actions;
+                    const start = document.positionAt(offset);
+                    const startRange = new vscode.Range(start, start);
+                    offset += client.lastSuggestionSnippet.length;
+                    const end = document.positionAt(offset - 2);
+                    const endRange = new vscode.Range(end, end);
+                    return [
+                        new vscode.CodeLens(startRange, {
+                            title: 'Apply suggestion',
+                            command: 'coeditor.applySuggestion',
+                            arguments: [0],
+                        }),
+                        new vscode.CodeLens(endRange, {
+                            title: 'Apply above suggestion',
+                            command: 'coeditor.applySuggestion',
+                            arguments: [0],
+                        }),
+                    ];
                 } else {
                     return [];
                 }
@@ -323,10 +320,9 @@ class CoeditorClient {
             } else {
                 this.inputStatus = targetLines.map((i) => [i, '?']);
             }
-            client._setDecorators();
+            this._setDecorators();
             this.lastTargetLines = targetLines;
 
-            // check the type of targetLines
             const targetDesc =
                 typeof targetLines === 'number'
                     ? `at line ${targetLines}`
@@ -337,7 +333,7 @@ class CoeditorClient {
             const project = vscode.workspace.getWorkspaceFolder(targetUri);
             if (project === undefined) {
                 throw new Error(
-                    'Unable to determine the project folder for the active editor.'
+                    'Unable to determine the project folder for the target editor.'
                 );
             }
             const projectPath = project.uri.fsPath;
@@ -349,11 +345,12 @@ class CoeditorClient {
                 const saved = await targetEditor.document.save();
                 if (!saved) {
                     throw new Error(
-                        'Unable to proceed: failed to save the active editor.'
+                        'Unable to proceed: failed to save the target editor.'
                     );
                 }
             }
 
+            // submit problem to server
             const config = vscode.workspace.getConfiguration();
             const writeLogs = config.get<boolean>('coeditor.writeLogs');
             client.counter += 1;
@@ -385,6 +382,7 @@ class CoeditorClient {
             this._updateSuggestPanel(prompt);
             this._setDecorators();
 
+            // request server to proceed
             const response: ServerResponse = await requestServer(
                 'get_result',
                 { time: Date.now(), project: projectPath },
@@ -405,22 +403,22 @@ class CoeditorClient {
             };
             console.log(res_to_show);
             this.channel.appendLine(JSON.stringify(res_to_show));
-            const suggestionSnippets = response.suggestions.map((suggestion) => {
-                return `================= Score: ${suggestion.score.toPrecision(
-                    3
-                )} =================\n${suggestion.change_preview}\n\n`;
-            });
+
+            const suggestion = response.suggestions[0];
+            const suggestionSnippet = `================= Score: ${suggestion.score.toPrecision(
+                3
+            )} =================\n${suggestion.change_preview}\n\n`;
             this.lastResponse = response;
-            this.lastSuggestions = suggestionSnippets;
+            this.lastSuggestionSnippet = suggestionSnippet;
             this.inputStatus = response.suggestions[0].input_status;
             this.outputStatus = response.suggestions[0].output_status.map(([i, tag]) => [
                 i + 2,
                 tag,
             ]);
-            this._updateSuggestPanel(suggestionSnippets.join(''));
+            this._updateSuggestPanel(suggestionSnippet);
             client._setDecorators();
             if (!backgroundRun) {
-                this.viewSuggestions(editor);
+                await this.viewSuggestions(editor);
             }
             client.codeLensEmitter.fire();
             this._setDecorators();
@@ -456,7 +454,7 @@ class CoeditorClient {
                 preview: true,
                 viewColumn: viewColumn,
             })
-            .then((editor) => this._setEditorDecorators(editor));
+            .then((editor) => this._setDecorators());
     }
 
     /**
@@ -640,6 +638,9 @@ class CoeditorClient {
     _setDecorators() {
         for (const editor of vscode.window.visibleTextEditors) {
             this._setEditorDecorators(editor);
+        }
+        if (vscode.window.activeTextEditor) {
+            this._setEditorDecorators(vscode.window.activeTextEditor);
         }
     }
 
