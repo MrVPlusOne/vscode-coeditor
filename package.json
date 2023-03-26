@@ -63,6 +63,11 @@
           "default": true,
           "description": "Whether to run Coeditor in the background on file save."
         },
+        "coeditor.scoreThreshold": {
+          "type": "number",
+          "default": 0.2,
+          "description": "When running in the background, results whose confidence score lower than this value will not be shown."
+        },
         "coeditor.writeLogs": {
           "type": "boolean",
           "default": false,

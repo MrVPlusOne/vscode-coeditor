@@ -30,8 +30,8 @@ export async function activate(context: vscode.ExtensionContext) {
             coeditorClient
         ),
         vscode.commands.registerCommand(
-            'coeditor.applySuggestion',
-            coeditorClient.applySuggestion,
+            'coeditor.applySuggestionAndSave',
+            coeditorClient.applySuggestionAndSave,
             coeditorClient
         ),
         vscode.commands.registerCommand(
@@ -78,9 +78,16 @@ class CoeditorClient {
     async suggestEditsForSelection() {
         await this.suggestEdits(false);
     }
+    
+    async applySuggestionAndSave(change_i?: number) {
+        const editor = await this._applySuggestion(change_i);
+        if (editor && editor.document.isDirty) {
+            await editor.document.save();
+        }
+    }
 
-    async applySuggestionAndClose(index?: number) {
-        await this.applySuggestion(index);
+    async applySuggestionAndClose(change_i?: number) {
+        const editor = await this._applySuggestion(change_i);
         vscode.window.visibleTextEditors.forEach(async (editor) => {
             const uri = editor.document.uri;
             if (
@@ -93,6 +100,9 @@ class CoeditorClient {
                 );
             }
         });
+        if (editor && editor.document.isDirty) {
+            await editor.document.save();
+        }
     }
 
     constructor(context: vscode.ExtensionContext) {
@@ -122,9 +132,9 @@ class CoeditorClient {
                                 command: 'coeditor.viewSuggestions',
                             }),
                             new vscode.CodeLens(lensRange, {
-                                title: 'Apply this change',
-                                command: 'coeditor.applySuggestion',
-                                arguments: [0, i],
+                                title: 'Apply change',
+                                command: 'coeditor.applySuggestionAndSave',
+                                arguments: [i],
                             }),
                         ];
                     });
@@ -141,14 +151,12 @@ class CoeditorClient {
                     const endRange = new vscode.Range(end, end);
                     return [
                         new vscode.CodeLens(startRange, {
-                            title: 'Apply suggestion',
-                            command: 'coeditor.applySuggestion',
-                            arguments: [0],
+                            title: 'Apply changes and close',
+                            command: 'coeditor.applySuggestionAndClose',
                         }),
                         new vscode.CodeLens(endRange, {
-                            title: 'Apply above suggestion',
-                            command: 'coeditor.applySuggestion',
-                            arguments: [0],
+                            title: 'Apply changes and close',
+                            command: 'coeditor.applySuggestionAndClose',
                         }),
                     ];
                 } else {
@@ -179,9 +187,10 @@ class CoeditorClient {
                             change.start - 1 <= position.line &&
                             position.line < Math.max(change.until, change.start + 1) - 1
                         ) {
-                            const preview = `Coeditor suggestion:\n${wrapCode(
+                            const scoreStr = suggestion.score.toPrecision(3);
+                            const preview = `Coeditor suggestion (score=${scoreStr}):\n${wrapCode(
                                 change.old_str
-                            )}\n----\n\n${wrapCode(change.new_str)}`;
+                            )}\nchange to:\n\n${wrapCode(change.new_str)}`;
                             return new vscode.Hover(new vscode.MarkdownString(preview));
                         }
                     }
@@ -405,9 +414,21 @@ class CoeditorClient {
             this.channel.appendLine(JSON.stringify(res_to_show));
 
             const suggestion = response.suggestions[0];
-            const suggestionSnippet = `================= Score: ${suggestion.score.toPrecision(
-                3
-            )} =================\n${suggestion.change_preview}\n\n`;
+            const score_threshold = config.get<number>('coeditor.scoreThreshold', 0.2);
+            if (backgroundRun && suggestion.score < score_threshold) {
+                // discard the suggestions due to low score
+                suggestion.changes = [];
+                const clear = ([i, tag]: [number, string]): [number, string] => [i, ' '];
+                suggestion.input_status = suggestion.input_status.map(clear);
+                suggestion.output_status = suggestion.output_status.map(clear);
+            }
+            const confTag = suggestion.score < score_threshold ? '(Low Confidence) ' : '';
+            const suggestionSnippet =
+                `================= ${confTag}Score: ` +
+                suggestion.score.toPrecision(3) +
+                ' =================\n' +
+                suggestion.change_preview +
+                '\n\n';
             this.lastResponse = response;
             this.lastSuggestionSnippet = suggestionSnippet;
             this.inputStatus = response.suggestions[0].input_status;
@@ -459,12 +480,11 @@ class CoeditorClient {
 
     /**
      * Apply the model suggestions to the target file, open an editor if necessary.
-     * Then rerun the model again on the new inputs.
-     * @param suggest_i which suggestion to apply, default to 0
+     * Then return the target editor.
      * @param change_i within the suggestion, which subchange to apply. If undefined,
      * all suggested changes are applied.
      */
-    async applySuggestion(suggest_i: number = 0, change_i?: number) {
+    async _applySuggestion(change_i?: number) {
         if (this.lastResponse === undefined) {
             vscode.window.showErrorMessage('No suggestions to apply.');
             return;
@@ -486,7 +506,7 @@ class CoeditorClient {
             });
         }
 
-        const suggestion = this.lastResponse.suggestions[suggest_i];
+        const suggestion = this.lastResponse.suggestions[0];
         let changes: LineChange[];
         if (change_i === undefined) {
             changes = suggestion.changes;
@@ -495,7 +515,7 @@ class CoeditorClient {
         }
         await this._applyChanges(editor, changes);
         this._setDecorators();
-        await this.suggestEdits(true, true, editor);
+        return editor;
     }
 
     async _applyChanges(editor: vscode.TextEditor, changes: LineChange[]) {
@@ -539,10 +559,10 @@ class CoeditorClient {
         const rulerColor = isLight ? '#d6d6d6' : 'white';
         const iconMap = {
             '?': isLight ? 'images/question-dark.png' : 'images/question-white.png',
-            ' ': isLight ? 'images/pencil-dark.png' : 'images/pencil-white.png',
-            R: 'images/pencil-blue.png',
-            A: 'images/pencil-green.png',
-            D: 'images/pencil-red.png',
+            ' ': isLight ? 'images/circle-dark.png' : 'images/circle-white.png',
+            R: 'images/circle-blue.png',
+            A: 'images/circle-green.png',
+            D: 'images/circle-red.png',
         };
 
         const result = new Map<string, vscode.TextEditorDecorationType>();
@@ -552,7 +572,7 @@ class CoeditorClient {
                 vscode.window.createTextEditorDecorationType({
                     gutterIconPath: context.asAbsolutePath(path),
                     overviewRulerColor: rulerColor,
-                    gutterIconSize: 'contain',
+                    gutterIconSize: '80%',
                     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
                     overviewRulerLane: vscode.OverviewRulerLane.Right,
                 })
