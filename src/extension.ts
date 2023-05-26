@@ -659,9 +659,6 @@ class CoeditorClient {
         for (const editor of vscode.window.visibleTextEditors) {
             this._setEditorDecorators(editor);
         }
-        if (vscode.window.activeTextEditor) {
-            this._setEditorDecorators(vscode.window.activeTextEditor);
-        }
     }
 
     _setEditorDecorators(editor: vscode.TextEditor) {

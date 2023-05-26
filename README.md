@@ -2,11 +2,10 @@
 
 AI-powered Python code change suggestion using the [Coeditor model](https://github.com/MrVPlusOne/Coeditor).
 
-*It's like GitHub Copilot but for auto-completing your code edits.*
+
+*It's like GitHub Copilot but for auto-completing your code edits.* Watch [how Coeditor works](https://youtu.be/hjZE__jslzs) on Youtube.
 
 ![Coeditor Screenshot](images/Coeditor-screenshot.png)
-
-[Watch how Coeditor works on Youtube](https://youtu.be/hjZE__jslzs).
 
 ## Features
 
