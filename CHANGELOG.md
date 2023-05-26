@@ -3,6 +3,10 @@
 
 ## [Unreleased]
 
+## [0.4.4] - 2023-05-26
+- Added extension logo.
+- Update Readme for formal release.
+
 ## [0.4.3] - 2023-03-26
 ### Fixed
 - Save file when applying changes (for more interactive UX). Use `apply and save` in suggestion panel lenses.

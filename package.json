@@ -3,11 +3,12 @@
   "displayName": "Coeditor",
   "description": "AI-powered Python code editing assistant.",
   "publisher": "JiayiWei",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "repository": {
     "type": "git",
     "url": "https://github.com/MrVPlusOne/vscode-coeditor"
   },
+  "icon": "images/Coeditor-logo-1200.png",
   "engines": {
     "vscode": "^1.74.0"
   },
@@ -60,7 +61,7 @@
         },
         "coeditor.backgroundRunOnSave": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Whether to run Coeditor in the background on file save."
         },
         "coeditor.scoreThreshold": {
